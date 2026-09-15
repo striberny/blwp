@@ -196,15 +196,15 @@ misbehaves, verify that file first.
 The widget's `main.js` fetches `https://api.fcbinside.de/data/{domain}.json`
 **cross-origin** from the customer's page. That file is served statically by nginx, so it
 never touches PHP, and the `.htaccess` files that appear to configure it are ignored.
-Whatever nginx sends *is* the entire policy.
+Whatever nginx sends _is_ the entire policy.
 
 Three headers are required on `/data/*.json`:
 
-| Header                       | Value                  | Why                                                                                                                                  |
-| ---------------------------- | ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
-| `Access-Control-Allow-Origin` | `*`                   | Without it the browser blocks the fetch outright and the widget renders nothing.                                                       |
-| `Cache-Control`              | `public, max-age=60`   | Otherwise browsers apply *heuristic* caching and can serve a stale payload for minutes — during a match, which is the worst moment. |
-| `Content-Type`               | `application/json`     | Usually already covered by nginx's `mime.types`.                                                                                      |
+| Header                        | Value                | Why                                                                                                                                 |
+| ----------------------------- | -------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| `Access-Control-Allow-Origin` | `*`                  | Without it the browser blocks the fetch outright and the widget renders nothing.                                                    |
+| `Cache-Control`               | `public, max-age=60` | Otherwise browsers apply _heuristic_ caching and can serve a stale payload for minutes — during a match, which is the worst moment. |
+| `Content-Type`                | `application/json`   | Usually already covered by nginx's `mime.types`.                                                                                    |
 
 ```nginx
 location ~* \.json$ {
@@ -214,12 +214,12 @@ location ~* \.json$ {
 ```
 
 `v1/` needs none of this. `fetch.php` and `register.php` are called server-to-server from
-WordPress, so CORS never applies to them. `img.php` *is* browser-fetched, but as an
+WordPress, so CORS never applies to them. `img.php` _is_ browser-fetched, but as an
 `<img src>`, which is not subject to CORS either.
 
 Three nginx traps that break this quietly:
 
-1. **`add_header` appends; Apache's `Header set` replaces.** A *global*
+1. **`add_header` appends; Apache's `Header set` replaces.** A _global_
    `Access-Control-Allow-Origin` would give `img.php` two ACAO headers — nginx's plus the one
    `handle_cors()` sets — and browsers reject duplicate values. Scope it to `\.json$`.
 2. **`add_header` is not inherited** by a `location` block that declares its own
@@ -306,14 +306,14 @@ read-only against upstream). Leaking one is far less severe than leaking the sha
 
 ### Protections in place
 
-| Path                       | Protection                                                                                         |
-| -------------------------- | -------------------------------------------------------------------------------------------------- |
-| `backend/`                 | **Denied** by `backend/.htaccess` under Apache (dev). nginx ignores that file — there, protection comes from the path rather than the file |
-| Production `backend/`      | Sits at `/home/deploy/blwp/`, outside the document root entirely                                   |
-| `config/secrets.php`       | **Gitignored.** Holds `api_key` + `shared_secret`; the `secrets.example.php` template is committed |
-| `config/site-mapping.json` | **Gitignored.** Holds every site's token; the `site-mapping.example.json` template is committed    |
+| Path                       | Protection                                                                                                                                                          |
+| -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `backend/`                 | **Denied** by `backend/.htaccess` under Apache (dev). nginx ignores that file — there, protection comes from the path rather than the file                          |
+| Production `backend/`      | Sits at `/home/deploy/blwp/`, outside the document root entirely                                                                                                    |
+| `config/secrets.php`       | **Gitignored.** Holds `api_key` + `shared_secret`; the `secrets.example.php` template is committed                                                                  |
+| `config/site-mapping.json` | **Gitignored.** Holds every site's token; the `site-mapping.example.json` template is committed                                                                     |
 | `api/data/`                | Public by design. `Access-Control-Allow-Origin: *` and `Cache-Control: max-age=60` come from the **nginx vhost** in production and from `api/data/.htaccess` in dev |
-| `api/`                     | `api/.htaccess` sets the dev origin. Apache-only, so it has no effect in production                |
+| `api/`                     | `api/.htaccess` sets the dev origin. Apache-only, so it has no effect in production                                                                                 |
 
 ### Outstanding
 

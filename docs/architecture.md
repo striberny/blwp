@@ -326,7 +326,7 @@ for metadata (`form`, `status`, `description`), and are refreshed on every tick 
 cost is negligible against the plan.
 **Why:** the API's table updates on its own schedule, so during a match it lags reality.
 Computing locally means a goal is reflected immediately.
-**Cadence:** fetching and *validating* are deliberately decoupled. `validateStandings()`
+**Cadence:** fetching and _validating_ are deliberately decoupled. `validateStandings()`
 still runs on a slower clock (`intervals.standings_validation`, 60 min) because it is a
 canary, not a dependency — that keeps a healthy system silent.
 **Guard rails:** `validateStandings()` compares the computed table against the API's field
