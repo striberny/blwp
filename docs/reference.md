@@ -206,7 +206,7 @@ Runtime state. Read and written by the cron, `register.php` and `fetch.php`.
 | `global.last_run`                  | `cron/fetch_all.php`        | `check_health.php` | When the last tick finished — the staleness signal                     |
 | `global.last_run_ok`               | same                        | `check_health.php` | Whether every site in that tick succeeded                              |
 | `global.last_run_summary`          | same                        | `check_health.php` | Per-site counts, so a healthy tick needs no log line                   |
-| `global.live_signature`            | `update_global_standings()` | same               | Fixture ids + statuses of the live games, so only *changes* get logged |
+| `global.live_signature`            | `update_global_standings()` | same               | Fixture ids + statuses of the live games, so only _changes_ get logged |
 | `sites.{domain}.last_manual_fetch` | `fetch.php`                 | `fetch.php`        | Manual-refresh rate limiting                                           |
 | `sites.{domain}.last_update`       | `register.php`, `fetch.php` | —                  | Bookkeeping only                                                       |
 
@@ -220,15 +220,19 @@ Throttle bookkeeping for `blwp_notify()`. Gitignored, created on the first alert
 
 ```json
 {
-  "site:testwp.test": { "sent_at": "2026-05-12T11:24:20+02:00", "suppressed": 37, "active": true }
+  "site:testwp.test": {
+    "sent_at": "2026-05-12T11:24:20+02:00",
+    "suppressed": 37,
+    "active": true
+  }
 }
 ```
 
-| Field        | Meaning                                                                   |
-| ------------ | ------------------------------------------------------------------------- |
+| Field        | Meaning                                                                       |
+| ------------ | ----------------------------------------------------------------------------- |
 | `sent_at`    | When this key last actually notified; the throttle window is measured from it |
-| `suppressed` | How many further occurrences were counted and swallowed inside the window |
-| `active`     | An alert is outstanding, so `blwp_notify_recovered()` owes an all-clear    |
+| `suppressed` | How many further occurrences were counted and swallowed inside the window     |
+| `active`     | An alert is outstanding, so `blwp_notify_recovered()` owes an all-clear       |
 
 A key with `active` removed no longer exists — the all-clear clears the entry entirely.
 
@@ -406,7 +410,7 @@ Sort order: points ↓, goal difference ↓, goals for ↓. `rank` is then assig
 | `intervals.alert_throttle`       | `240`                               | Minutes before the same alert key may notify again         |
 | `log_verbose`                    | `false`                             | Log the per-tick "everything is normal" lines              |
 | `telegram_bot_token`             | _secret_, optional                  | Enables alerting; empty means every notify is a no-op      |
-| `telegram_chat_id`               | _secret_, optional                  |                                                                                 |
+| `telegram_chat_id`               | _secret_, optional                  |                                                            |
 | `healthcheck_ping_url`           | _secret_, optional                  | Dead-man's switch pinged at the end of each tick           |
 
 Only those two `intervals` are live. The scheduling intervals

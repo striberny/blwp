@@ -143,7 +143,7 @@ sequenceDiagram
     participant FS as api/data/*.json
 
     TS->>CRON: php backend/cron/fetch_all.php
-    CRON->>FF: update_global_standings(force=true)
+    CRON->>FF: update_global_standings()
     FF->>API: getLeagueFixtures(78, season)
     FF->>FF: calculateStandings()
     FF->>API: getStandings(78, season)   %% every run, for metadata
@@ -303,7 +303,8 @@ breaking customer sites, because a slightly stale file is still a valid file.
 ### D2 — The cron always updates everything
 
 **Decision:** `fetch_all.php` has no scheduling logic. Every enabled site is refreshed on
-every tick; standings are recalculated with `force_update = true`.
+every tick, and `update_global_standings()` takes no schedule argument at all — it simply
+always recalculates.
 **Why:** the previous design tracked per-site "next update time" based on live-game
 detection. It was fragile, and the failure mode was bad — a stale widget during a live
 match, which is exactly when the data matters most. A detection gap (a Champions League

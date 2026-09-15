@@ -23,11 +23,11 @@ _is_ the schedule; see [D2](architecture.md#d2--the-cron-always-updates-everythi
 **What one run does:**
 
 1. Load `config/site-mapping.json` and `config/cron-state.json`
-2. `update_global_standings(force = true)`
+2. `update_global_standings($config, $cron_state)`
    - recompute the table from all league fixtures
    - call `getStandings()` for the metadata merge (every run)
    - cross-check the local table against it only every 60 min
-3. For each entry with `enabled: true` → `fetch_site_data(domain, force = true)`
+3. For each entry with `enabled: true` → `fetch_site_data($domain, $config)`
 4. Write `cron-state.json`
 
 **Development (Windows Task Scheduler):**
@@ -253,10 +253,10 @@ same error would otherwise grow the file without any bound.
 | `API error in getFixtures/getResults/getFixturesByDate` | Upstream failure. The site's data file was **not** written, so the last good data is still live. |
 | `ERROR updating <domain>`                               | Per-site failure, see the message                                                                |
 | `ERROR - could not write`                               | The payload was not published — `file_put_contents()` failed or came up short                    |
-| `WARNING - getStandings() returned no rows`             | Metadata comes from the cache; the calculated table is unaffected                                 |
-| `ALERT NOT SENT`                                        | Telegram rejected the alert — the one failure that would otherwise stay invisible                 |
+| `WARNING - getStandings() returned no rows`             | Metadata comes from the cache; the calculated table is unaffected                                |
+| `ALERT NOT SENT`                                        | Telegram rejected the alert — the one failure that would otherwise stay invisible                |
 | `WARNING - healthcheck ping failed`                     | The external monitor will now report the cron as down                                            |
-| `Live Bundesliga: N game(s)`                            | Only on transition (0→N, N→0, or a status change), never once per tick                            |
+| `Live Bundesliga: N game(s)`                            | Only on transition (0→N, N→0, or a status change), never once per tick                           |
 | `UNAUTHORIZED - Secret key mismatch`                    | A plugin has the wrong `shared_secret`                                                           |
 | `Invalid token for domain`                              | Plugin and `site-mapping.json` disagree — re-save the plugin settings                            |
 | `RATE LIMIT`                                            | Manual refresh attempted too soon (expected, not an error)                                       |
@@ -270,12 +270,12 @@ same error would otherwise grow the file without any bound.
 
 Two independent channels. They exist as a pair because they fail in disjoint ways.
 
-|         | Telegram (inside-out)                                                      | healthchecks.io (outside-in)                       |
-| ------- | -------------------------------------------------------------------------- | -------------------------------------------------- |
-| Reports | `blwp_notify()` in `lib/notify.php`                                        | an external monitor                                |
-| Knows   | *what* broke, with detail                                                  | only *that* something stopped                      |
-| Catches | site update failed, payload not written, standings empty, validation drift | scheduler disabled, PHP fatal, dead host, disk full |
-| Blind to| its own death — it cannot report anything if it never runs                 | everything granular                                |
+|          | Telegram (inside-out)                                                      | healthchecks.io (outside-in)                        |
+| -------- | -------------------------------------------------------------------------- | --------------------------------------------------- |
+| Reports  | `blwp_notify()` in `lib/notify.php`                                        | an external monitor                                 |
+| Knows    | _what_ broke, with detail                                                  | only _that_ something stopped                       |
+| Catches  | site update failed, payload not written, standings empty, validation drift | scheduler disabled, PHP fatal, dead host, disk full |
+| Blind to | its own death — it cannot report anything if it never runs                 | everything granular                                 |
 
 A process cannot report that it stopped running. That is the entire reason for the second
 channel, and why neither one is redundant.
@@ -298,7 +298,7 @@ Leave either value empty and every `blwp_notify()` call becomes a **silent no-op
 is what development and a fresh clone want. Nothing else has to be configured.
 
 **Throttling is not optional.** An expired API key fails on all 480 ticks a day, and an
-unthrottled notifier turns one outage into 480 messages — a second outage. Each alert *key*
+unthrottled notifier turns one outage into 480 messages — a second outage. Each alert _key_
 (`site:example.test`, `standings`, `validation`) may therefore fire at most once per
 `intervals.alert_throttle` (default **240** minutes). Further occurrences inside that window
 are counted, and the count is attached to the next message that does go out:
@@ -318,7 +318,7 @@ would discard anything written to it mid-run.
 ### healthchecks.io
 
 The free tier ("Hobbyist") is **20 jobs**, with unlimited pings: one job absorbs all 480
-daily pings. The billed limit is retained ping *history* (100 entries per job), not a cap on
+daily pings. The billed limit is retained ping _history_ (100 entries per job), not a cap on
 runs.
 
 1. Create a free account and a check with a period of **5 minutes** and a grace time of
@@ -336,7 +336,7 @@ produces no request at all, and the monitor alerts on that silence.
 
 `cron/check_health.php` is the manual companion: it exits non-zero when the run is stale or a
 data file is missing, which makes it usable from a deploy script. But something has to
-*invoke* it, so it cannot stand in for the external heartbeat.
+_invoke_ it, so it cannot stand in for the external heartbeat.
 
 ---
 
