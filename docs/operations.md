@@ -96,8 +96,11 @@ misbehaves, verify that file first.
    scp -r api/* deploy@srv01:/var/www/api.fcbinside.de/htdocs/
    ```
 
-   Ensure `api/.htaccess` and `api/data/.htaccess` are included — they set the CORS headers
-   and the 60-second JSON cache.
+   Both `.htaccess` files in that tree are **Apache-only**. Laragon reads them in
+   development; nginx ignores them completely. On the production server the CORS header, the
+   60-second cache and the JSON MIME type therefore have to come from the nginx vhost — see
+   [Static JSON headers](#static-json-headers). Shipping the files is still correct, they
+   simply do nothing there.
 
    `api/data/` and `api/cache/` are generated, not source. Copying them just ships dev's
    `testwp.test.json` and dev's rendered logos to production; the cron rewrites the real ones
@@ -105,7 +108,7 @@ misbehaves, verify that file first.
 
 2. **Upload the private tree — excluding the runtime state**
 
-   Do **not** `scp -r backend/*`. `scp` copies the *working tree*, not the git index, so that
+   Do **not** `scp -r backend/*`. `scp` copies the _working tree_, not the git index, so that
    also uploads `config/secrets.php` and `config/site-mapping.json` — your **development**
    credentials and **development** site registry — straight over production's live ones.
    Build a tarball that leaves them out instead:
@@ -124,12 +127,12 @@ misbehaves, verify that file first.
    Four paths are excluded on purpose. They are gitignored runtime state that belongs to the
    server, and dev's copies must never replace them:
 
-   | Excluded                    | Why                                                                                                     |
-   | --------------------------- | ------------------------------------------------------------------------------------------------------- |
-   | `config/secrets.php`        | Live credentials. Pointing dev's key at production's site registry is an instant wall of 403s.          |
-   | `config/site-mapping.json`  | The live site registry. Dev's copy contains only `testwp.test`, so every real site would stop updating. |
-   | `config/cron-state.json`    | Dev's `last_run` would make `check_health.php` report a healthy pipeline that isn't running.            |
-   | `config/alerts.json`        | Throttle bookkeeping. Harmless either way, but it is the server's own state.                            |
+   | Excluded                   | Why                                                                                                     |
+   | -------------------------- | ------------------------------------------------------------------------------------------------------- |
+   | `config/secrets.php`       | Live credentials. Pointing dev's key at production's site registry is an instant wall of 403s.          |
+   | `config/site-mapping.json` | The live site registry. Dev's copy contains only `testwp.test`, so every real site would stop updating. |
+   | `config/cron-state.json`   | Dev's `last_run` would make `check_health.php` report a healthy pipeline that isn't running.            |
+   | `config/alerts.json`       | Throttle bookkeeping. Harmless either way, but it is the server's own state.                            |
 
    `tar -x` only adds and overwrites — it never deletes. Anything absent from the archive,
    including all four files above, is left exactly as it was.
@@ -188,16 +191,61 @@ misbehaves, verify that file first.
    php /home/deploy/blwp/cron/check_health.php
    ```
 
+### Static JSON headers
+
+The widget's `main.js` fetches `https://api.fcbinside.de/data/{domain}.json`
+**cross-origin** from the customer's page. That file is served statically by nginx, so it
+never touches PHP, and the `.htaccess` files that appear to configure it are ignored.
+Whatever nginx sends *is* the entire policy.
+
+Three headers are required on `/data/*.json`:
+
+| Header                       | Value                  | Why                                                                                                                                  |
+| ---------------------------- | ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| `Access-Control-Allow-Origin` | `*`                   | Without it the browser blocks the fetch outright and the widget renders nothing.                                                       |
+| `Cache-Control`              | `public, max-age=60`   | Otherwise browsers apply *heuristic* caching and can serve a stale payload for minutes — during a match, which is the worst moment. |
+| `Content-Type`               | `application/json`     | Usually already covered by nginx's `mime.types`.                                                                                      |
+
+```nginx
+location ~* \.json$ {
+    add_header Access-Control-Allow-Origin "*" always;
+    add_header Cache-Control "public, max-age=60" always;
+}
+```
+
+`v1/` needs none of this. `fetch.php` and `register.php` are called server-to-server from
+WordPress, so CORS never applies to them. `img.php` *is* browser-fetched, but as an
+`<img src>`, which is not subject to CORS either.
+
+Three nginx traps that break this quietly:
+
+1. **`add_header` appends; Apache's `Header set` replaces.** A *global*
+   `Access-Control-Allow-Origin` would give `img.php` two ACAO headers — nginx's plus the one
+   `handle_cors()` sets — and browsers reject duplicate values. Scope it to `\.json$`.
+2. **`add_header` is not inherited** by a `location` block that declares its own
+   `add_header`. Put this in `server{}` while adding a security header inside
+   `location ~ \.php$` and the CORS header silently disappears.
+3. **Without `always` it only applies to 2xx/3xx/304**, so a 404 arrives without CORS and is
+   far harder to debug.
+
+Verify from outside the server:
+
+```bash
+curl -s -D - -o /dev/null -H "Origin: https://fcbinside.de" \
+  https://api.fcbinside.de/data/standings.json \
+  | grep -iE "^(HTTP/|content-type|access-control|cache-control)"
+```
+
 ### Deploying with git instead
 
 The tarball above is the recommended default: two commands, no repository on the server, and
 nothing is ever deleted. A plain `git pull` will **not** work, and the reason is the
 asymmetry shown above:
 
-| Repo path    | Production destination                                     |
-| ------------ | ---------------------------------------------------------- |
-| `api/**`     | `/var/www/api.fcbinside.de/htdocs/` (contents)             |
-| `backend/**` | `/home/deploy/blwp/` (contents, **`backend/` dropped**)    |
+| Repo path    | Production destination                                  |
+| ------------ | ------------------------------------------------------- |
+| `api/**`     | `/var/www/api.fcbinside.de/htdocs/` (contents)          |
+| `backend/**` | `/home/deploy/blwp/` (contents, **`backend/` dropped**) |
 
 A clone at `/home/deploy/blwp` produces `/home/deploy/blwp/api/…` and
 `/home/deploy/blwp/backend/…`. `bootstrap.php` then fails its test for
@@ -205,7 +253,7 @@ A clone at `/home/deploy/blwp` produces `/home/deploy/blwp/api/…` and
 site looks deployed while pointing at the wrong paths. One pull cannot populate two
 destinations when one of them also loses a directory level.
 
-What a pull *does* get right is that git never touches untracked or ignored files, so
+What a pull _does_ get right is that git never touches untracked or ignored files, so
 `secrets.php`, `site-mapping.json`, `cron-state.json`, `alerts.json`, `logs/` and
 `api/data/*.json` all survive automatically.
 
@@ -260,12 +308,12 @@ read-only against upstream). Leaking one is far less severe than leaking the sha
 
 | Path                       | Protection                                                                                         |
 | -------------------------- | -------------------------------------------------------------------------------------------------- |
-| `backend/`                 | **Denied** by `backend/.htaccess` (added for the dev layout; harmless in production)               |
+| `backend/`                 | **Denied** by `backend/.htaccess` under Apache (dev). nginx ignores that file — there, protection comes from the path rather than the file |
 | Production `backend/`      | Sits at `/home/deploy/blwp/`, outside the document root entirely                                   |
 | `config/secrets.php`       | **Gitignored.** Holds `api_key` + `shared_secret`; the `secrets.example.php` template is committed |
 | `config/site-mapping.json` | **Gitignored.** Holds every site's token; the `site-mapping.example.json` template is committed    |
-| `api/data/`                | Public by design, `Access-Control-Allow-Origin: *`, `Cache-Control: max-age=60`                    |
-| `api/`                     | `api/.htaccess` restricts the origin to the dev host                                               |
+| `api/data/`                | Public by design. `Access-Control-Allow-Origin: *` and `Cache-Control: max-age=60` come from the **nginx vhost** in production and from `api/data/.htaccess` in dev |
+| `api/`                     | `api/.htaccess` sets the dev origin. Apache-only, so it has no effect in production                |
 
 ### Outstanding
 
@@ -277,9 +325,10 @@ read-only against upstream). Leaking one is far less severe than leaking the sha
    resolving this.**
 2. **The image cache is publicly readable in production.** `api/cache/img/` lands inside the
    document root, so `https://api.fcbinside.de/cache/img/<md5>.webp` resolves. `img.php`
-   only reads it from disk, so nothing depends on that exposure — an `.htaccess` denying
-   direct access would close it, at the cost of the files no longer being served by the web
-   server for free.
+   only reads it from disk, so nothing depends on that exposure. Denying it is a one-line
+   nginx change — `location ^~ /cache/ { deny all; }` — at the cost of the files no longer
+   being served by the web server for free. (An `.htaccess` only helps under Apache, so that
+   route would not work here.)
 3. **CORS allowlist is hardcoded** and needs a deploy per new client. A data-driven list
    (derived from `site-mapping.json`) would remove that step.
 4. **`register.php` echoes the token back** in its response. Convenient for debugging, but

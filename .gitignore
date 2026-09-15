@@ -59,6 +59,8 @@ backend/cache/
 # These live on disk (they are what the web server publishes) but they are output,
 # not source. Rewritten by the cron every 3 minutes.
 # NOTE: api/data/.htaccess is deliberately NOT ignored — it carries the CORS headers
+# under Apache in development. Production is nginx, where those headers come from the
+# vhost instead. See docs/operations.md#static-json-headers
 # and must be deployed with the rest of the tree.
 api/data/*.json
 backend/config/cron-state.json

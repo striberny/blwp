@@ -32,10 +32,10 @@ There is no database. All state lives in JSON files on disk.
 ```
 blwp/
 ├── api/                          ← WEB ROOT in development (https://blwp.test/api/)
-│   ├── .htaccess                 CORS headers for the API folder
+│   ├── .htaccess                 dev-host CORS origin (Apache only — ignored by nginx)
 │   ├── cache/img/                generated WebP cache (gitignored)
 │   ├── data/                     ← the public, statically-served output
-│   │   ├── .htaccess             Access-Control-Allow-Origin: *, 60s cache
+│   │   ├── .htaccess             CORS + 60s cache under Apache (dev only)
 │   │   ├── {domain}.json         per-site fixtures / results / live
 │   │   └── standings.json        shared Bundesliga table
 │   └── v1/                       HTTP endpoints
@@ -47,17 +47,22 @@ blwp/
     ├── bootstrap.php             environment detection + path constants
     ├── config/
     │   ├── api-config.php        limits, intervals, wiring
-    │   ├── secrets.php           api_key + shared_secret      ⚠ GITIGNORED
+    │   ├── secrets.php           api_key, shared_secret, Telegram  ⚠ GITIGNORED
     │   ├── secrets.example.php   template — copy to secrets.php
     │   ├── site-mapping.json     per-site config + tokens      ⚠ GITIGNORED
     │   ├── site-mapping.example.json    template
-    │   └── cron-state.json       runtime state + standings cache
-    ├── cron/fetch_all.php        CLI entry point (the scheduled job)
+    │   ├── cron-state.json       runtime state + standings cache
+    │   └── alerts.json            alert throttle state          ⚠ GITIGNORED
+    ├── cron/
+    │   ├── fetch_all.php         CLI entry point (the scheduled job)
+    │   └── check_health.php      exit 0 when healthy, 1 when not
     ├── inc/
     │   ├── APIFootball.php       api-sports.io client
     │   └── ClubConfig.php        unused DTO
     ├── lib/
     │   ├── cors.php              allowed-origin list
+    │   ├── logging.php           blwp_log() / blwp_log_verbose() + rotation
+    │   ├── notify.php            blwp_notify() → Telegram, throttled
     │   ├── utils.php             domain logic: standings, names, rounds
     │   └── fetch-functions.php   fetch_site_data / update_global_standings / categorizeGames
     └── logs/                     api.log, fetch-debug.log
@@ -66,6 +71,11 @@ blwp/
 > **Everything under `backend/` is private.** It contains the API key, all site tokens
 > and the logs. `backend/.htaccess` denies direct web access so this holds true in
 > development too — see [operations.md](docs/operations.md#security).
+>
+> ⚠ **`.htaccess` files are Apache-only.** Production runs **nginx**, which ignores them
+> completely. There, `/home/deploy/blwp/` is protected by sitting outside the document root,
+> and the CORS/cache headers on `api/data/*.json` must come from the nginx vhost — see
+> [static JSON headers](docs/operations.md#static-json-headers).
 
 ---
 

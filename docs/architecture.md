@@ -297,8 +297,11 @@ $has_game_today = !empty($today_raw)
 **Decision:** publish files, don't answer queries.
 **Why:** WordPress pages stay fast and resilient; the service can be down briefly without
 breaking customer sites, because a slightly stale file is still a valid file.
-**Cost:** `api/data/*.json` is generated state living inside the web root; `.htaccess` sets
-`Cache-Control: max-age=60` so browsers don't hammer it during live matches.
+**Cost:** `api/data/*.json` is generated state living inside the web root. The nginx vhost
+must set `Cache-Control: max-age=60` and `Access-Control-Allow-Origin: *` on it — without the
+cache header browsers fall back to heuristic caching and can serve a stale payload for
+minutes during a match. See
+[operations.md](operations.md#static-json-headers).
 
 ### D2 — The cron always updates everything
 
@@ -454,10 +457,11 @@ Ordered by how likely they are to cause a real problem.
    `/backend/config/*` was publicly readable. `backend/.htaccess` now denies all direct
    access. Production was never affected because those files live outside the document root.
 3. **`cors.php` allowlist is hardcoded** and must be edited and redeployed for each new
-   client. Meanwhile `api/data/.htaccess` sends `Access-Control-Allow-Origin: *`, so the
-   dynamic endpoints are strict while the static data is wide open. That is deliberate —
-   `<img>` and static JSON need to be fetchable from any customer domain — but it is worth
-   knowing the two policies differ.
+   client. Meanwhile the static `api/data/*.json` is served with
+   `Access-Control-Allow-Origin: *` — set by the nginx vhost in production, and by
+   `api/data/.htaccess` under Apache in development. So the dynamic endpoints are strict
+   while the static data is wide open. That is deliberate — `<img>` and static JSON need to
+   be fetchable from any customer domain — but it is worth knowing the two policies differ.
 
 ### Correctness / robustness
 
