@@ -241,7 +241,8 @@ Produced by `filterFixtures()`; `isToday` is added later by `categorizeGames()`.
     "short": "NS",
     "long": "Not Started",
     "elapsed": null,
-    "extra": null
+    "extra": null,
+    "phase": "upcoming"
   },
   "league": {
     "id": 78,
@@ -278,6 +279,9 @@ Notes for consumers:
 
 - `meta.schema` is the contract version. The plugin warns on `meta.schema` values it does
   not understand instead of rendering blanks, so bump it when a field name or shape changes.
+- `status.phase` is the backend's classification — `finished` | `live` | `upcoming` |
+  `other`. Branch on it rather than keeping a list of status codes on the client; see
+  [Fixture status codes](#fixture-status-codes).
 - `league.round` is **already translated** (`4. Spieltag`, `Achtelfinale`, …).
 - `teams.*.name` is **already corrected** (short German forms).
 - `goals.*` is `null` before kickoff.
@@ -380,33 +384,37 @@ the per-site scheduler — see [D2](architecture.md#d2--the-cron-always-updates-
 
 ## Fixture status codes
 
-api-sports.io short codes, and how each subsystem treats them.
+api-sports.io short codes, mapped to the single vocabulary defined in `utils.php` and
+published as `status.phase`.
 
-| Code   | Meaning               | `categorizeGames` | `calculateStandings` counts it? |
-| ------ | --------------------- | ----------------- | ------------------------------- |
-| `TBD`  | Time to be defined    | not started       | no                              |
-| `NS`   | Not started           | not started       | no                              |
-| `1H`   | First half            | in play           | **yes**                         |
-| `HT`   | Half time             | in play           | **yes**                         |
-| `2H`   | Second half           | in play           | **yes**                         |
-| `ET`   | Extra time            | in play           | **yes**                         |
-| `BT`   | Break (during ET)     | in play           | **yes**                         |
-| `P`    | Penalties in progress | in play           | **yes**                         |
-| `LIVE` | Live                  | in play           | no                              |
-| `INT`  | Interrupted           | in play           | no                              |
-| `SUSP` | Suspended             | in play           | no                              |
-| `FT`   | Full time             | finished          | **yes**                         |
-| `AET`  | After extra time      | finished          | **yes**                         |
-| `PEN`  | After penalties       | finished          | **yes**                         |
-| `AWD`  | Awarded               | finished          | **yes**                         |
-| `WO`   | Walkover              | finished          | **yes**                         |
+| Code   | Meaning               | `status.phase` | Bucket when played today | Counts toward the table? |
+| ------ | --------------------- | -------------- | ------------------------ | ------------------------ |
+| `TBD`  | Time to be defined    | `upcoming`     | `fixtures`               | no                       |
+| `NS`   | Not started           | `upcoming`     | `fixtures`               | no                       |
+| `1H`   | First half            | `live`         | `live`                   | **yes**                  |
+| `HT`   | Half time             | `live`         | `live`                   | **yes**                  |
+| `2H`   | Second half           | `live`         | `live`                   | **yes**                  |
+| `ET`   | Extra time            | `live`         | `live`                   | **yes**                  |
+| `BT`   | Break (during ET)     | `live`         | `live`                   | **yes**                  |
+| `P`    | Penalties in progress | `live`         | `live`                   | **yes**                  |
+| `LIVE` | Live                  | `live`         | `live`                   | **yes**                  |
+| `INT`  | Interrupted           | `live`         | `live`                   | **yes**                  |
+| `SUSP` | Suspended             | `live`         | `live`                   | **yes**                  |
+| `FT`   | Full time             | `finished`     | `live` + `results`       | **yes**                  |
+| `AET`  | After extra time      | `finished`     | `live` + `results`       | **yes**                  |
+| `PEN`  | After penalties       | `finished`     | `live` + `results`       | **yes**                  |
+| `AWD`  | Awarded               | `finished`     | `live` + `results`       | **yes**                  |
+| `WO`   | Walkover              | `finished`     | `live` + `results`       | **yes**                  |
+| `PST`  | Postponed             | `other`        | `fixtures`               | no                       |
+| `CANC` | Cancelled             | `other`        | `fixtures` / `results`   | no                       |
+| `ABD`  | Abandoned             | `other`        | `fixtures` / `results`   | no                       |
 
-> The two columns disagree for `LIVE`, `INT` and `SUSP`: such a game is shown in the
-> `live` bucket but its score is **not** added to the table. That is intentional — those
-> codes mean the match is not in a countable state — but it means a visible live score can
-> briefly disagree with the table. Worth confirming against real behaviour before changing.
+> A game counts towards the table once its `phase` is `live` or `finished` — exactly
+> `getCountableStatuses()`, i.e. finished ∪ in-play. There is **no** separate narrower list:
+> a goal in the 80th minute has to reach the table straight away, which is the whole reason
+> the table is computed locally rather than fetched.
 >
-> A game that is `isToday` **and** finished lands in **both** `live` (the "half-life" rule,
+> A game that is `isToday` **and** `finished` lands in **both** `live` (the "half-life" rule,
 > so it stays visible in the Spielplan tab until midnight) **and** `results` (so the
 > Ergebnisse tab and the form widget show it straight away).
 

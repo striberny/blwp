@@ -162,18 +162,18 @@ read-only against upstream). Leaking one is far less severe than leaking the sha
 
 ### Protections in place
 
-| Path                  | Protection                                                                           |
-| --------------------- | ------------------------------------------------------------------------------------ |
-| `backend/`            | **Denied** by `backend/.htaccess` (added for the dev layout; harmless in production) |
-| Production `backend/` | Sits at `/home/deploy/blwp/`, outside the document root entirely                     |
-| `config/secrets.php`  | **Gitignored.** Holds `api_key` + `shared_secret`; the `secrets.example.php` template is committed |
-| `config/site-mapping.json` | **Gitignored.** Holds every site's token; the `site-mapping.example.json` template is committed |
-| `api/data/`           | Public by design, `Access-Control-Allow-Origin: *`, `Cache-Control: max-age=60`      |
-| `api/`                | `api/.htaccess` restricts the origin to the dev host                                 |
+| Path                       | Protection                                                                                         |
+| -------------------------- | -------------------------------------------------------------------------------------------------- |
+| `backend/`                 | **Denied** by `backend/.htaccess` (added for the dev layout; harmless in production)               |
+| Production `backend/`      | Sits at `/home/deploy/blwp/`, outside the document root entirely                                   |
+| `config/secrets.php`       | **Gitignored.** Holds `api_key` + `shared_secret`; the `secrets.example.php` template is committed |
+| `config/site-mapping.json` | **Gitignored.** Holds every site's token; the `site-mapping.example.json` template is committed    |
+| `api/data/`                | Public by design, `Access-Control-Allow-Origin: *`, `Cache-Control: max-age=60`                    |
+| `api/`                     | `api/.htaccess` restricts the origin to the dev host                                               |
 
 ### Outstanding
 
-1. **Secrets remain in git *history*.** They are no longer tracked (see
+1. **Secrets remain in git _history_.** They are no longer tracked (see
    [Protections in place](#protections-in-place)), but the `api_key`, `shared_secret` and a
    site token still exist in blobs from earlier commits — `git rm --cached` does not purge
    history. Because this repo has no remote and no other clone, rewriting history is safe
@@ -379,7 +379,7 @@ they are left as explicit steps rather than applied automatically.
 
 3. ~~**Untrack the secrets**~~ **Done** — `secrets.php` and `site-mapping.json` are
    gitignored with committed `*.example.*` templates. What remains is purging the
-   credentials from *history*, which untracking does not do; see [Security](#security).
+   credentials from _history_, which untracking does not do; see [Security](#security).
 
 4. **Delete the dead code** once you are confident nothing external depends on it:
    `inc/ClubConfig.php`, `Exceptions/MissingApiKey.php`, and the legacy

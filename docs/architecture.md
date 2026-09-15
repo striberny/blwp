@@ -214,21 +214,46 @@ shape the frontend uses, and applies the two transformations that make the paylo
 So the **frontend never translates rounds or fixes team names** — that happens once,
 server-side, for every consumer.
 
+### The status vocabulary
+
+There is exactly **one** definition of which status codes mean what, in `utils.php`:
+
+| Helper                   | Codes                                                  |
+| ------------------------ | ------------------------------------------------------ |
+| `getFinishedStatuses()`  | `FT, AET, PEN, AWD, WO`                                |
+| `getInPlayStatuses()`    | `1H, HT, 2H, ET, P, BT, LIVE, INT, SUSP`               |
+| `getCountableStatuses()` | the union of the two — anything that may affect the table |
+| `classifyPhase()`        | maps a code to `finished` \| `live` \| `upcoming` \| `other` |
+
+`filterFixtures()` stamps `status.phase` on every published game, and both
+`categorizeGames()` and `calculateStandings()` read these helpers instead of carrying their
+own copies.
+
+This replaced **five** independent copies of the same lists — three in the backend (two in
+`categorizeGames()`, one in `calculateStandings()`, plus a fourth used only to log live
+games), and one in the frontend. The frontend now knows **no status codes at all**: it
+branches on `status.phase` and keeps only the German *wording* in `matchStatusMap`.
+
+> An earlier revision of this document claimed `calculateStandings()` deliberately excluded
+> `LIVE`, `INT` and `SUSP`. That was wrong — it always included them. The full per-code
+> behaviour table is in [reference.md](reference.md#fixture-status-codes).
+
 ### Game classification (`categorizeGames`)
 
 Fixtures and results are merged into three buckets. **Each bucket has its own dedupe guard**,
-because a game can legitimately belong to two buckets at once:
+because a game can legitimately belong to two buckets at once. The bucket is decided from
+`status.phase`, so the backend no longer inspects raw status codes here:
 
 | Condition                                                       | Bucket(s)                         |
 | --------------------------------------------------------------- | --------------------------------- |
 | Today **and** status ∈ `1H, HT, 2H, ET, P, BT, LIVE, INT, SUSP` | `live`                            |
 | Today **and** status ∈ `FT, AET, PEN, AWD, WO`                  | `live` **and** `results`          |
-| Anything else (future games, today's games not yet kicked off)   | `fixtures` (with `isToday: true`) |
+| Anything else (future games, today's games not yet kicked off)  | `fixtures` (with `isToday: true`) |
 
 The **half-life** rule is why a game finished today lands in two places. It stays in `live`
 until midnight so it does not vanish from the Spielplan tab the moment the final whistle
 blows — the frontend detects that case (`isLive && isFinished`) and renders it with the
-results layout. It is *also* published to `results` immediately, so the Ergebnisse tab and
+results layout. It is _also_ published to `results` immediately, so the Ergebnisse tab and
 the form widget can show it without waiting for midnight.
 
 The second half is a fix rather than a flourish. The buckets used to share a single
@@ -369,8 +394,8 @@ during an upstream hiccup is strictly better than no data.
 | File                                   | Responsibility                                                                                               |
 | -------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
 | `backend/bootstrap.php`                | Environment detection, path constants                                                                        |
-| `backend/config/api-config.php` | Limits, intervals, environment wiring. Returns an array. |
-| `backend/config/secrets.php` | `api_key` + `shared_secret`. **Gitignored** — template is `secrets.example.php`. |
+| `backend/config/api-config.php`        | Limits, intervals, environment wiring. Returns an array.                                                     |
+| `backend/config/secrets.php`           | `api_key` + `shared_secret`. **Gitignored** — template is `secrets.example.php`.                             |
 | `backend/inc/APIFootball.php`          | Thin api-sports.io client. Every method returns decoded JSON or `['error'=>…,'status'=>…]`.                  |
 | `backend/lib/utils.php`                | Domain logic: season, name corrections, round translation, filtering, standings calculation/merge/validation |
 | `backend/lib/fetch-functions.php`      | Orchestration: `fetch_site_data()`, `update_global_standings()`, `categorizeGames()`                         |
