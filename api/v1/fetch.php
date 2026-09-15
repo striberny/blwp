@@ -133,11 +133,9 @@ if ($last_fetch) {
 
 // blwp_log("Starting forced fetch for: {$domain}");
 
-// Update global standings first (force update)
+// Update global standings first, then refresh this site's data.
 $cron_state = update_global_standings($config, $cron_state, true);
-
-// Fetch site data (force update)
-$result = fetch_site_data($domain, $config, true);
+$result = fetch_site_data($domain, $config);
 
 if ($result['success']) {
     // Update manual fetch timestamp in cron state

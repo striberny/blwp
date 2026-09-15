@@ -53,7 +53,7 @@ return [
   // standings_live, standings_no_live) were removed together with that logic —
   // they no longer had any effect. Only the two intervals below are live.
   'intervals' => [
-    'api_cache_refresh' => 60,  // getStandings() cache lifetime — protects the API quota
-    'http_rate_limit' => 5,     // Min. minutes between manual /v1/fetch.php calls per domain
+    'standings_validation' => 60, // Minutes between cross-checks of the local table vs the API
+    'http_rate_limit' => 5,       // Min. minutes between manual /v1/fetch.php calls per domain
   ],
 ];

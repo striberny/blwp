@@ -12,10 +12,9 @@ require_once __DIR__ . '/utils.php';
  *
  * @param string $domain Site domain
  * @param array $config API configuration
- * @param bool $force_update Bypass schedule checks and force update
  * @return array Result with success status and details
  */
-function fetch_site_data($domain, $config, $force_update = false)
+function fetch_site_data($domain, $config)
 {
   $api = new APIFootball($config['api_key']);
   $data_dir = $config['data_path'];
@@ -147,11 +146,11 @@ function update_global_standings($config, &$cron_state, $force_update = false)
   $competition_id = $config['league_ids']['bundesliga'];
   $season = $config['default_season'];
 
-  // Only the API standings cache interval still matters: it caps how often the
-  // quota-consuming getStandings() call is made. The per-site scheduling
-  // intervals were dropped with the cron simplification (see docs/architecture.md).
+  // The standings validation interval is the only remaining cadence. The API standings are
+  // fetched on every tick now; only the local-vs-API cross-check runs less often, so a
+  // healthy system produces no log output. See docs/architecture.md.
   $intervals = $config['intervals'] ?? [];
-  $api_cache_interval = $intervals['api_cache_refresh'] ?? 60;
+  $validation_interval = $intervals['standings_validation'] ?? 60;
 
   $current_hour = (int) date('H');
   $current_minute = (int) date('i');
@@ -211,35 +210,34 @@ function update_global_standings($config, &$cron_state, $force_update = false)
     $calculated_standings = calculateStandings($all_league_fixtures, $competition_id);
     // blwp_log("Calculated standings with " . count($calculated_standings) . " teams");
 
-    // Fetch API standings: at configured interval during live games, daily at 23:00, or if cache empty
-    $minutes_since_api_cache = !empty($cron_state['global']['api_cache_timestamp'])
-      ? (time() - strtotime($cron_state['global']['api_cache_timestamp'])) / 60
-      : 9999;
+    // Always refresh the API standings. Against the plan the quota cost is negligible, and
+    // it keeps the merged metadata (form, status, description) fresh within one tick rather
+    // than lagging up to an hour behind the locally calculated table.
+    $api_standings_raw = $api->getStandings($competition_id, $season);
+    $api_standings = filterStandings($api_standings_raw, true);
 
-    // Never let $force_update bypass the api_cache_interval — that would fire
-    // getStandings every cron tick and exhaust the rate limit.
-    $fetch_api_standings =
-      ($minutes_since_api_cache >= $api_cache_interval) ||
-      ($current_hour === 23 && $current_minute < 5) ||
-      empty($cron_state['global']['api_standings_cache']);
-
-    if ($fetch_api_standings) {
-      // blwp_log("Fetching API standings for metadata merge and validation");
-      $api_standings_raw = $api->getStandings($competition_id, $season);
-      $api_standings = filterStandings($api_standings_raw, true);
-
-      // Validate our calculations
-      validateStandings($calculated_standings, $api_standings, 'global');
-
-      // Cache API standings
+    if (empty($api_standings)) {
+      // Upstream returned nothing usable. Reuse the last good payload rather than letting
+      // form/status/description silently vanish from the table.
+      $api_standings = $cron_state['global']['api_standings_cache'] ?? [];
+      blwp_log('WARNING - getStandings() returned no rows; reusing the cached metadata');
+    } else {
       $cron_state['global']['api_standings_cache'] = $api_standings;
-      $cron_state['global']['api_cache_timestamp'] = date('c');
+    }
+
+    // validateStandings() is a cross-check, not a dependency — the table is calculated
+    // locally either way. Run it on its own slower cadence so a healthy system stays quiet.
+    $last_validation = $cron_state['global']['last_standings_validation'] ?? null;
+    $minutes_since_validation = $last_validation ? (time() - strtotime($last_validation)) / 60 : 9999;
+
+    if (!empty($api_standings) && $minutes_since_validation >= $validation_interval) {
+      validateStandings($calculated_standings, $api_standings, 'global');
+      $cron_state['global']['last_standings_validation'] = date('c');
     }
 
     // Merge calculated + API metadata
-    $api_cache = $cron_state['global']['api_standings_cache'] ?? [];
-    $global_standings = !empty($api_cache)
-      ? mergeStandingsWithAPI($calculated_standings, $api_cache)
+    $global_standings = !empty($api_standings)
+      ? mergeStandingsWithAPI($calculated_standings, $api_standings)
       : $calculated_standings;
 
     // Save global standings.json

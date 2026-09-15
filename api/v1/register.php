@@ -128,11 +128,9 @@ $cron_state = file_exists($cron_state_file)
     ? json_decode(file_get_contents($cron_state_file), true)
     : ['global' => [], 'sites' => []];
 
-// Update global standings (forced)
+// Update global standings, then fetch this site's data so it has something to serve.
 $cron_state = update_global_standings($config, $cron_state, true);
-
-// Fetch site data (forced)
-$fetch_result = fetch_site_data($domain, $config, true);
+$fetch_result = fetch_site_data($domain, $config);
 
 if ($fetch_result['success']) {
     // Update cron state
