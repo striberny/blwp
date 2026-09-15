@@ -1,0 +1,19 @@
+[
+    {
+        "domain": "example.test",
+        "team_id": 157,
+        "competition_ids": [78],
+        "season": 2025,
+        "limit_last": 15,
+        "limit_next": 15,
+        "active_widgets": ["matches", "standings", "results"],
+        "enabled": true,
+        "api_token": "REPLACE-WITH-64-CHAR-HEX-TOKEN",
+        "custom_labels": [],
+        "notes": "",
+        "created_at": "1970-01-01T00:00:00+00:00",
+        "updated_at": "1970-01-01T00:00:00+00:00",
+        "last_checked": "1970-01-01T00:00:00+00:00",
+        "status": "active"
+    }
+]

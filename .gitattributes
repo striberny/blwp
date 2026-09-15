@@ -1,0 +1,22 @@
+# Normalise line endings across platforms and editors.
+#
+# WHY THIS EXISTS
+# PHP's file_put_contents() always writes "\n". Tracked files that were committed from
+# Windows carried CRLF, so every cron run rewrote them with LF and `git diff` reported
+# the entire file as changed — a 982-line diff for a one-line edit. With `eol=lf`,
+# the working tree and the repository agree and that noise disappears.
+
+* text=auto eol=lf
+
+# Binary assets — never apply text conversions to these
+*.png    binary
+*.jpg    binary
+*.jpeg   binary
+*.gif    binary
+*.webp   binary
+*.ico    binary
+*.zip    binary
+*.woff   binary
+*.woff2  binary
+*.ttf    binary
+*.eot    binary

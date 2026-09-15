@@ -1,0 +1,69 @@
+
+# Development Tools
+.vscode/
+.idea/
+*.code-workspace
+
+# Build Directory
+/build/
+/dist/
+
+# Dependency Directories
+/vendor/
+/node_modules/
+
+# OS Generated Files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Logs, Docs and Databases
+*.log
+*.txt
+*.sql
+*.sqlite
+
+# Backup Files
+*.bak
+*.swp
+*.zip
+*~
+
+# Environment Files
+.env
+.env.*
+
+# Testing
+/coverage/
+.phpunit.result.cache
+
+# Composer
+composer.phar
+/vendor/
+
+# npm/yarn
+npm-debug.log
+yarn-debug.log
+yarn-error.log
+.pnpm-debug.log
+
+# Runtime image cache — regenerated on demand by api/v1/img.php, never commit these
+api/cache/
+backend/cache/
+
+# Generated data payloads and runtime state.
+# These live on disk (they are what the web server publishes) but they are output,
+# not source. Rewritten by the cron every 3 minutes.
+# NOTE: api/data/.htaccess is deliberately NOT ignored — it carries the CORS headers
+# and must be deployed with the rest of the tree.
+api/data/*.json
+backend/config/cron-state.json
+
+# Credentials and the live site registry — never commit these.
+# Committed templates sit next to them as *.example.* — those ARE tracked.
+backend/config/secrets.php
+backend/config/site-mapping.json

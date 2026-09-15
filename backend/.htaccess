@@ -1,0 +1,24 @@
+# Deny all direct web access to backend files and data.
+#
+# WHY THIS EXISTS
+# In development the web root is the `blwp/` folder itself (the API is reached at
+# https://blwp.test/api/). Without this file the following would be publicly
+# readable over HTTP:
+#
+#   /backend/config/api-config.php    -> api_key, shared_secret
+#   /backend/config/site-mapping.json -> api_token of every registered site
+#   /backend/config/cron-state.json   -> cached standings payload
+#   /backend/logs/*.log               -> request logs (including tokens)
+#
+# In production these files live at /home/deploy/blwp/, which is outside the
+# document root (/var/www/api.fcbinside.de/htdocs/). This file is therefore a
+# no-op there, but it is harmless and keeps the dev environment safe.
+
+<IfModule mod_authz_core.c>
+    Require all denied
+</IfModule>
+
+<IfModule !mod_authz_core.c>
+    Order allow,deny
+    Deny from all
+</IfModule>

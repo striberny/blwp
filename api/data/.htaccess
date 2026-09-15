@@ -1,0 +1,17 @@
+# CORS headers for static JSON files
+<IfModule mod_headers.c>
+    # Allow all origins (TODO: restrict to specific domains later)
+    Header set Access-Control-Allow-Origin "*"
+    Header set Access-Control-Allow-Methods "GET, OPTIONS"
+    Header set Access-Control-Allow-Headers "Content-Type"
+
+    # Cache JSON files for 1 minute (they update frequently during live games)
+    <FilesMatch "\.json$">
+        Header set Cache-Control "public, max-age=60"
+    </FilesMatch>
+</IfModule>
+
+# Ensure JSON files are served with correct MIME type
+<IfModule mod_mime.c>
+    AddType application/json .json
+</IfModule>
