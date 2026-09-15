@@ -99,11 +99,40 @@ misbehaves, verify that file first.
    Ensure `api/.htaccess` and `api/data/.htaccess` are included — they set the CORS headers
    and the 60-second JSON cache.
 
-2. **Upload the private tree**
+   `api/data/` and `api/cache/` are generated, not source. Copying them just ships dev's
+   `testwp.test.json` and dev's rendered logos to production; the cron rewrites the real ones
+   within 3 minutes either way.
+
+2. **Upload the private tree — excluding the runtime state**
+
+   Do **not** `scp -r backend/*`. `scp` copies the *working tree*, not the git index, so that
+   also uploads `config/secrets.php` and `config/site-mapping.json` — your **development**
+   credentials and **development** site registry — straight over production's live ones.
+   Build a tarball that leaves them out instead:
+
+   ```powershell
+   # from the dev machine
+   tar --exclude=config/secrets.php --exclude=config/site-mapping.json --exclude=config/cron-state.json --exclude=config/alerts.json --exclude=logs -czf backend.tar -C c:\laragon\www\blwp\backend .
+   scp backend.tar deploy@srv01:/tmp/
+   ```
 
    ```bash
-   scp -r backend/* deploy@srv01:/home/deploy/blwp/
+   # on the server
+   tar -xzf /tmp/backend.tar -C /home/deploy/blwp
    ```
+
+   Four paths are excluded on purpose. They are gitignored runtime state that belongs to the
+   server, and dev's copies must never replace them:
+
+   | Excluded                    | Why                                                                                                     |
+   | --------------------------- | ------------------------------------------------------------------------------------------------------- |
+   | `config/secrets.php`        | Live credentials. Pointing dev's key at production's site registry is an instant wall of 403s.          |
+   | `config/site-mapping.json`  | The live site registry. Dev's copy contains only `testwp.test`, so every real site would stop updating. |
+   | `config/cron-state.json`    | Dev's `last_run` would make `check_health.php` report a healthy pipeline that isn't running.            |
+   | `config/alerts.json`        | Throttle bookkeeping. Harmless either way, but it is the server's own state.                            |
+
+   `tar -x` only adds and overwrites — it never deletes. Anything absent from the archive,
+   including all four files above, is left exactly as it was.
 
 3. **Directories and permissions**
 
@@ -117,9 +146,13 @@ misbehaves, verify that file first.
    ```
 
 4. **Confirm the production config**
-   - `secrets.php` — **create it first.** It is gitignored, so it never arrives with a
-     deploy: `cp config/secrets.example.php config/secrets.php`, then fill in the live
-     `api_key` and `shared_secret` and `chmod 600` it
+   - `secrets.php` — **create it once, by hand.** It is gitignored and the upload above
+     explicitly excludes it, so it never arrives with a deploy:
+     `cp config/secrets.example.php config/secrets.php`, then `chmod 600` and fill in all five
+     live values — `api_key`, `shared_secret`, `telegram_bot_token`, `telegram_chat_id`,
+     `healthcheck_ping_url`. The last three are optional: without the Telegram pair alerting
+     is a silent no-op, and without the ping URL the dead-man's switch is inert. Nothing
+     errors — it just goes quiet, which is the opposite of what you want.
    - `api-config.php` — `data_path` pointing at the real web-root data directory
    - `site-mapping.json` — real domains, each with a token; `testwp.test` must **not** be
      the only entry
@@ -154,6 +187,60 @@ misbehaves, verify that file first.
    ```bash
    php /home/deploy/blwp/cron/check_health.php
    ```
+
+### Deploying with git instead
+
+The tarball above is the recommended default: two commands, no repository on the server, and
+nothing is ever deleted. A plain `git pull` will **not** work, and the reason is the
+asymmetry shown above:
+
+| Repo path    | Production destination                                     |
+| ------------ | ---------------------------------------------------------- |
+| `api/**`     | `/var/www/api.fcbinside.de/htdocs/` (contents)             |
+| `backend/**` | `/home/deploy/blwp/` (contents, **`backend/` dropped**)    |
+
+A clone at `/home/deploy/blwp` produces `/home/deploy/blwp/api/…` and
+`/home/deploy/blwp/backend/…`. `bootstrap.php` then fails its test for
+`/home/deploy/blwp/config/api-config.php`, **silently takes the development branch**, and the
+site looks deployed while pointing at the wrong paths. One pull cannot populate two
+destinations when one of them also loses a directory level.
+
+What a pull *does* get right is that git never touches untracked or ignored files, so
+`secrets.php`, `site-mapping.json`, `cron-state.json`, `alerts.json`, `logs/` and
+`api/data/*.json` all survive automatically.
+
+`git archive` extracts one subtree, and `--strip-components=1` drops the `backend/` level —
+exactly the shape production wants. Like the tarball, it only adds and overwrites:
+
+```bash
+# one-time, somewhere that is NOT a deploy target
+git clone <remote> /home/deploy/blwp-src
+
+# each deploy
+cd /home/deploy/blwp-src && git fetch origin && git pull
+
+git archive origin/main backend | tar -x --strip-components=1 -C /home/deploy/blwp
+git archive origin/main api     | tar -x --strip-components=1 -C /var/www/api.fcbinside.de/htdocs
+```
+
+Or archive locally and upload, which keeps no repository on the server at all:
+
+```powershell
+git -C c:\laragon\www\blwp archive origin/main backend -o backend.tar
+```
+
+**Never let a `.git/` directory land inside `/var/www/api.fcbinside.de/htdocs/`.** Apache will
+serve `/.git/config` and anything else it finds in there. The `.htaccess` files protect
+`data/` and `cache/`, not a stray repo — which is the other reason not to clone into the
+document root.
+
+**Never use `rsync --delete` for either tree.** It would treat the repo contents as
+authoritative, find that `secrets.php`, `site-mapping.json`, `cron-state.json`,
+`alerts.json` and `logs/` are not in the source, and delete them. That is a credential wipe
+and a site-registry wipe in one command.
+
+Note the commit before deploying (`git log --oneline -1`) so you have a rollback point.
+Reverting only affects tracked files — runtime state is never part of it.
 
 ---
 
