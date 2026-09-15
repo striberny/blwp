@@ -59,7 +59,7 @@ $mapping    = file_exists($mapping_file)
 $cron_state = load_cron_state($config_dir);
 
 // === GLOBAL STANDINGS — recalculated every run ===
-update_global_standings($config, $cron_state, true);
+update_global_standings($config, $cron_state);
 
 // === PER-SITE — always fetch every enabled site ===
 $run_summary = [];

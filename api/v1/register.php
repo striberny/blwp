@@ -126,7 +126,7 @@ $cron_state = file_exists($cron_state_file)
     : ['global' => [], 'sites' => []];
 
 // Update global standings, then fetch this site's data so it has something to serve.
-$cron_state = update_global_standings($config, $cron_state, true);
+$cron_state = update_global_standings($config, $cron_state);
 $fetch_result = fetch_site_data($domain, $config);
 
 if ($fetch_result['success']) {

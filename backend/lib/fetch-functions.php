@@ -151,12 +151,15 @@ function fetch_site_data($domain, $config)
 /**
  * Update global standings (shared between cron and HTTP)
  *
+ * Always recalculates. There is no schedule left to consult — the old version gated itself on
+ * match hours plus a once-a-day fallback, which meant the table could be stale during exactly
+ * the window it mattered. See docs/architecture.md#d2--the-cron-always-updates-everything.
+ *
  * @param array $config API configuration
  * @param array $cron_state Current cron state (passed by reference, will be modified)
- * @param bool $force_update Force update regardless of schedule
  * @return array Updated cron state
  */
-function update_global_standings($config, &$cron_state, $force_update = false)
+function update_global_standings($config, &$cron_state)
 {
   $api = new APIFootball($config['api_key']);
   $data_dir = $config['data_path'];
@@ -168,31 +171,6 @@ function update_global_standings($config, &$cron_state, $force_update = false)
   // healthy system produces no log output. See docs/architecture.md.
   $intervals = $config['intervals'] ?? [];
   $validation_interval = $intervals['standings_validation'] ?? 60;
-
-  $current_hour = (int) date('H');
-  $current_minute = (int) date('i');
-
-  // Check if update is needed
-  $last_standings_update = $cron_state['global']['last_standings_update'] ?? null;
-  $minutes_since_standings_update = $last_standings_update ? (time() - strtotime($last_standings_update)) / 60 : 9999;
-
-  // Both callers (the CLI cron and /v1/fetch.php) always pass force_update = true,
-  // so standings are recalculated on every tick. The fallback branch below is kept
-  // for any future non-forced caller.
-  if ($force_update) {
-    $should_update = true;
-  } else {
-    // Match hours (13:00-23:00), or at least once a day
-    $is_match_hours = $current_hour >= 13 && $current_hour <= 23;
-    $should_update = $is_match_hours || $minutes_since_standings_update > 1440;
-  }
-
-  if (!$should_update) {
-    // blwp_log("Skipping global standings update (last updated: {$last_standings_update})");
-    return $cron_state;
-  }
-
-  // blwp_log("Updating global Bundesliga standings" . ($force_update ? " (forced)" : ""));
 
   try {
     // Calculate standings from all league fixtures (season snapshot)

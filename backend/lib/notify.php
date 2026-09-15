@@ -73,10 +73,16 @@ function blwp_notify_state(): array
 
 function blwp_notify_state_save(array $state): void
 {
-    @file_put_contents(
-        blwp_notify_state_file(),
-        json_encode($state, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES)
-    );
+    $file = blwp_notify_state_file();
+    $json = json_encode($state, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
+    $written = @file_put_contents($file, $json);
+
+    if ($written !== strlen($json)) {
+        // Worth shouting about: without a writable state file the throttle cannot work. Every
+        // tick would re-read an empty state and send again, so one broken thing becomes
+        // hundreds of messages a day. A log line is safe here — it cannot amplify itself.
+        blwp_log("WARNING - could not write {$file}; alert throttling is NOT in effect");
+    }
 }
 
 /**

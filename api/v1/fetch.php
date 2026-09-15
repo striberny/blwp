@@ -131,7 +131,7 @@ if ($last_fetch) {
 // blwp_log("Starting forced fetch for: {$domain}");
 
 // Update global standings first, then refresh this site's data.
-$cron_state = update_global_standings($config, $cron_state, true);
+$cron_state = update_global_standings($config, $cron_state);
 $result = fetch_site_data($domain, $config);
 
 if ($result['success']) {
