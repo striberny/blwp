@@ -91,7 +91,8 @@ function fetch_site_data($domain, $config, $force_update = false)
       'meta' => [
         // Bumped when the published shape changes in a breaking way. The plugin checks
         // this and warns, instead of silently rendering blanks after a field rename.
-        'schema' => 1,
+        // 2 = fixtures carry status.phase (added in the phase refactor)
+        'schema' => 2,
         'domain' => $domain,
         'team_id' => $team_id,
         'generated_at' => date('c'),
@@ -184,7 +185,7 @@ function update_global_standings($config, &$cron_state, $force_update = false)
     // blwp_log("Calculating standings from {$fixture_count} league fixtures");
 
     // Detect live games by scanning today's fixtures for in-play statuses
-    $live_statuses = ['1H', 'HT', '2H', 'ET', 'P', 'BT', 'LIVE', 'INT', 'SUSP'];
+    $live_statuses = getInPlayStatuses();
     $league_live_games = [];
     foreach ($all_league_fixtures['response'] ?? [] as $fixture) {
       $status = $fixture['fixture']['status']['short'] ?? '';
@@ -245,7 +246,7 @@ function update_global_standings($config, &$cron_state, $force_update = false)
     $standings_file = $data_dir . '/standings.json';
     $standings_data = [
       'meta' => [
-        'schema' => 1,
+        'schema' => 2,
         'generated_at' => date('c'),
         'season' => $season,
         'competition_id' => $competition_id,
@@ -309,28 +310,24 @@ function categorizeGames($fixtures_raw, $results_raw)
     }
   };
 
-  // Statuses considered "finished"
-  $finished_statuses = ['FT', 'AET', 'PEN', 'AWD', 'WO'];
-
-  // Statuses considered "actually live" (game in progress)
-  $in_play_statuses = ['1H', 'HT', '2H', 'ET', 'P', 'BT', 'LIVE', 'INT', 'SUSP'];
-
   // Process fixtures first: upcoming games, plus everything happening today. Today's games
   // arrive twice (once via getFixturesByDate, once via getFixtures) — the per-bucket guards
   // now do the deduplication a global set used to handle.
   foreach ($fixtures_raw as $game) {
     $gameDateTime = new DateTime($game['date']);
     $gameDateTime->setTimezone(new DateTimeZone('Europe/Berlin'));
-    $status = $game['status']['short'] ?? 'NS';
     $isToday = ($gameDateTime->format('Y-m-d') === $today);
+
+    // filterFixtures() already classified this; fall back for safety.
+    $phase = $game['status']['phase'] ?? classifyPhase($game['status']['short'] ?? '');
 
     // Add isToday flag for frontend styling
     $game['isToday'] = $isToday;
 
-    if ($isToday && in_array($status, $in_play_statuses)) {
+    if ($isToday && $phase === 'live') {
       // In play right now
       $add('live', $game);
-    } elseif ($isToday && in_array($status, $finished_statuses)) {
+    } elseif ($isToday && $phase === 'finished') {
       // Finished today — two buckets on purpose:
       //   `live`    → the "half-life" rule, so the game does not vanish from the
       //               Spielplan tab the moment the final whistle blows
@@ -350,13 +347,15 @@ function categorizeGames($fixtures_raw, $results_raw)
   foreach ($results_raw as $game) {
     $gameDateTime = new DateTime($game['date']);
     $gameDateTime->setTimezone(new DateTimeZone('Europe/Berlin'));
-    $status = $game['status']['short'] ?? 'FT';
     $isToday = ($gameDateTime->format('Y-m-d') === $today);
+
+    // filterFixtures() already classified this; fall back for safety.
+    $phase = $game['status']['phase'] ?? classifyPhase($game['status']['short'] ?? '');
 
     // Add isToday flag for frontend styling
     $game['isToday'] = $isToday;
 
-    if ($isToday && in_array($status, $in_play_statuses)) {
+    if ($isToday && $phase === 'live') {
       // Rare, but the API can report an in-play match here. `live` is owned by the
       // fixtures loop, so this only ever fills a gap.
       $add('live', $game);

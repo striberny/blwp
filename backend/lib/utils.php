@@ -119,6 +119,66 @@ function translateRound($round, $league_id) {
     return $round;
 }
 
+/**
+ * Short status codes from api-sports.io that mean the match is over.
+ *
+ * This is the single source of truth for the status vocabulary. `categorizeGames()`,
+ * `calculateStandings()` and the published `status.phase` all derive from these helpers,
+ * and the frontend reads `phase` rather than keeping its own copy of the list.
+ *
+ * @return string[]
+ */
+function getFinishedStatuses(): array
+{
+  return ['FT', 'AET', 'PEN', 'AWD', 'WO'];
+}
+
+/**
+ * Short status codes that mean the match is being played right now.
+ *
+ * @return string[]
+ */
+function getInPlayStatuses(): array
+{
+  return ['1H', 'HT', '2H', 'ET', 'P', 'BT', 'LIVE', 'INT', 'SUSP'];
+}
+
+/**
+ * Short status codes whose score counts towards the league table.
+ *
+ * Finished ∪ in-play. A goal scored in the 80th minute has to reach the table
+ * immediately, which is the whole reason the table is computed locally instead of
+ * fetched from the API.
+ *
+ * @return string[]
+ */
+function getCountableStatuses(): array
+{
+  return array_merge(getFinishedStatuses(), getInPlayStatuses());
+}
+
+/**
+ * Classify a status code into a coarse phase the UI can branch on.
+ *
+ * @param string|null $status Short status code from api-sports.io
+ * @return string 'finished' | 'live' | 'upcoming' | 'other'
+ */
+function classifyPhase($status): string
+{
+  if (in_array($status, getFinishedStatuses(), true)) {
+    return 'finished';
+  }
+  if (in_array($status, getInPlayStatuses(), true)) {
+    return 'live';
+  }
+  if (in_array($status, ['TBD', 'NS'], true)) {
+    return 'upcoming';
+  }
+
+  // PST, CANC, ABD and anything new the API introduces
+  return 'other';
+}
+
 function filterFixtures(array $fixtures): array
 {
   return array_map(function ($item) {
@@ -129,7 +189,10 @@ function filterFixtures(array $fixtures): array
         'short' => $item['fixture']['status']['short'],
         'long' => $item['fixture']['status']['long'],
         'elapsed' => $item['fixture']['status']['elapsed'] ?? null,
-        'extra' => $item['fixture']['status']['extra'] ?? null
+        'extra' => $item['fixture']['status']['extra'] ?? null,
+        // Coarse classification, resolved once here so no consumer has to keep its own
+        // copy of the status vocabulary. See classifyPhase().
+        'phase' => classifyPhase($item['fixture']['status']['short'])
       ],
       'league' => [
         'id' => $item['league']['id'],
@@ -213,25 +276,8 @@ function calculateStandings(array $all_fixtures, int $competition_id): array
 {
   $teams = [];
 
-  // Statuses that count towards standings (finished or currently in play)
-  $countable_statuses = [
-    // Finished statuses
-    'FT',   // Full Time
-    'AET',  // After Extra Time
-    'PEN',  // After Penalties
-    'AWD',  // Awarded (technical decision)
-    'WO',   // Walkover
-    // In-play statuses (include current score in live standings)
-    '1H',   // First Half
-    'HT',   // Half Time
-    '2H',   // Second Half
-    'ET',   // Extra Time
-    'BT',   // Break Time (during ET)
-    'P',    // Penalties in progress
-    'LIVE', // Generic live
-    'INT',  // Interrupted (but still counts)
-    'SUSP'  // Suspended (but still counts current score)
-  ];
+  // Finished games plus games in progress — a goal has to reach the table immediately.
+  $countable_statuses = getCountableStatuses();
 
   // Process fixtures with countable statuses
   foreach ($all_fixtures['response'] ?? [] as $fixture) {
@@ -239,7 +285,7 @@ function calculateStandings(array $all_fixtures, int $competition_id): array
 
     // Only count matches from the specified competition with countable status
     if (
-      !in_array($status, $countable_statuses) ||
+      !in_array($status, $countable_statuses, true) ||
       $fixture['league']['id'] !== $competition_id
     ) {
       continue;
