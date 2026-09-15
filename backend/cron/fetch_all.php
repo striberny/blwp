@@ -62,28 +62,40 @@ $mapping    = file_exists($mapping_file)
   : [];
 $cron_state = load_cron_state($config_dir);
 
-// === GLOBAL STANDINGS — force recalculation every run ===
-// getStandings (API) is still rate-limited internally to once per 60 min.
+// === GLOBAL STANDINGS — recalculated every run ===
 update_global_standings($config, $cron_state, true);
 
 // === PER-SITE — always fetch every enabled site ===
+$run_summary = [];
+$run_ok = true;
+
 foreach ($mapping as $entry) {
   if (empty($entry['enabled']) || !$entry['enabled']) continue;
 
   $domain = $entry['domain'];
-  $result = fetch_site_data($domain, $config, true);
+  $result = fetch_site_data($domain, $config);
 
   if ($result['success']) {
-    blwp_log(sprintf(
-      'Updated %s: live=%d, fixtures=%d, results=%d',
-      $domain,
-      $result['live_count'],
-      $result['fixtures_count'],
-      $result['results_count']
-    ));
+    // Deliberately not logged: a healthy tick is the normal case. The counts go into
+    // cron-state.json instead, so success stays machine-readable and the log stays empty
+    // until something is actually wrong.
+    $run_summary[$domain] = [
+      'ok' => true,
+      'live' => $result['live_count'],
+      'fixtures' => $result['fixtures_count'],
+      'results' => $result['results_count'],
+    ];
   } else {
+    $run_ok = false;
+    $run_summary[$domain] = ['ok' => false, 'error' => $result['error']];
     blwp_log("ERROR updating {$domain}: {$result['error']}");
   }
 }
+
+// Record the outcome so a stalled or failing cron is visible without reading the log.
+// check_health.php reads exactly these keys.
+$cron_state['global']['last_run'] = date('c');
+$cron_state['global']['last_run_ok'] = $run_ok;
+$cron_state['global']['last_run_summary'] = $run_summary;
 
 save_cron_state($config_dir, $cron_state);
