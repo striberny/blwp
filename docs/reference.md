@@ -189,7 +189,8 @@ Runtime state. Read and written by the cron, `register.php` and `fetch.php`.
     "last_run_ok": true,
     "last_run_summary": {
       "testwp.test": { "ok": true, "live": 0, "fixtures": 15, "results": 15 }
-    }
+    },
+    "live_signature": ""
   },
   "sites": {
     "testwp.test": { "last_update": "2026-03-18T22:02:27+01:00" }
@@ -205,12 +206,31 @@ Runtime state. Read and written by the cron, `register.php` and `fetch.php`.
 | `global.last_run`                  | `cron/fetch_all.php`        | `check_health.php` | When the last tick finished — the staleness signal                     |
 | `global.last_run_ok`               | same                        | `check_health.php` | Whether every site in that tick succeeded                              |
 | `global.last_run_summary`          | same                        | `check_health.php` | Per-site counts, so a healthy tick needs no log line                   |
+| `global.live_signature`            | `update_global_standings()` | same               | Fixture ids + statuses of the live games, so only *changes* get logged |
 | `sites.{domain}.last_manual_fetch` | `fetch.php`                 | `fetch.php`        | Manual-refresh rate limiting                                           |
 | `sites.{domain}.last_update`       | `register.php`, `fetch.php` | —                  | Bookkeeping only                                                       |
 
 Dead keys from the removed per-site scheduler (`league_live_games`,
 `has_live_league_game`, `has_live_game`, `has_game_today`, `games_today_date`) have been
 pruned. They will not come back — nothing writes them any more.
+
+### `backend/config/alerts.json`
+
+Throttle bookkeeping for `blwp_notify()`. Gitignored, created on the first alert.
+
+```json
+{
+  "site:testwp.test": { "sent_at": "2026-05-12T11:24:20+02:00", "suppressed": 37, "active": true }
+}
+```
+
+| Field        | Meaning                                                                   |
+| ------------ | ------------------------------------------------------------------------- |
+| `sent_at`    | When this key last actually notified; the throttle window is measured from it |
+| `suppressed` | How many further occurrences were counted and swallowed inside the window |
+| `active`     | An alert is outstanding, so `blwp_notify_recovered()` owes an all-clear    |
+
+A key with `active` removed no longer exists — the all-clear clears the entry entirely.
 
 ### `api/data/{domain}.json`
 
@@ -371,18 +391,23 @@ Sort order: points ↓, goal difference ↓, goals for ↓. `rank` is then assig
 `shared_secret`) are read from the gitignored `backend/config/secrets.php` — see
 [operations.md](operations.md#security).
 
-| Key                           | Value                               | Purpose                                             |
-| ----------------------------- | ----------------------------------- | --------------------------------------------------- |
-| `api_key`                     | _secret_                            | api-sports.io key, sent as `x-apisports-key`        |
-| `league_ids.bundesliga`       | `78`                                | Competition used for standings                      |
-| `default_season`              | `getCurrentSeason()`                | July–June; see `utils.php`                          |
-| `limit_last`                  | `15`                                | Finished games requested per team                   |
-| `limit_next`                  | `15`                                | Upcoming games requested per team                   |
-| `default_widgets`             | `["matches","standings","results"]` | Written into new mapping entries                    |
-| `shared_secret`               | _secret_                            | `register.php` auth                                 |
-| `data_path`                   | env-dependent, trailing slash       | Where `*.json` is written                           |
-| `intervals.standings_validation` | `60` | Minutes between cross-checks of the local table vs the API |
-| `intervals.http_rate_limit`   | `5`                                 | Minutes between manual `fetch.php` calls per domain |
+| Key                              | Value                               | Purpose                                                    |
+| -------------------------------- | ----------------------------------- | ---------------------------------------------------------- |
+| `api_key`                        | _secret_                            | api-sports.io key, sent as `x-apisports-key`               |
+| `league_ids.bundesliga`          | `78`                                | Competition used for standings                             |
+| `default_season`                 | `getCurrentSeason()`                | July–June; see `utils.php`                                 |
+| `limit_last`                     | `15`                                | Finished games requested per team                          |
+| `limit_next`                     | `15`                                | Upcoming games requested per team                          |
+| `default_widgets`                | `["matches","standings","results"]` | Written into new mapping entries                           |
+| `shared_secret`                  | _secret_                            | `register.php` auth                                        |
+| `data_path`                      | env-dependent, trailing slash       | Where `*.json` is written                                  |
+| `intervals.standings_validation` | `60`                                | Minutes between cross-checks of the local table vs the API |
+| `intervals.http_rate_limit`      | `5`                                 | Minutes between manual `fetch.php` calls per domain        |
+| `intervals.alert_throttle`       | `240`                               | Minutes before the same alert key may notify again         |
+| `log_verbose`                    | `false`                             | Log the per-tick "everything is normal" lines              |
+| `telegram_bot_token`             | _secret_, optional                  | Enables alerting; empty means every notify is a no-op      |
+| `telegram_chat_id`               | _secret_, optional                  |                                                                                 |
+| `healthcheck_ping_url`           | _secret_, optional                  | Dead-man's switch pinged at the end of each tick           |
 
 Only those two `intervals` are live. The scheduling intervals
 (`live_game`, `no_live_game`, `standings_live`, `standings_no_live`) were removed along with

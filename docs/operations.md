@@ -216,27 +216,127 @@ A second file, `fetch-debug.log`, is written by `fetch.php` _before_ bootstrap r
 crashes during bootstrap are still captured. In production its path resolves incorrectly —
 see [Known issues](architecture.md#known-issues--debt).
 
-**What healthy output looks like:**
+### Log discipline
 
-```
-[2026-09-15 09:03:12] ✓ Standings validation passed for global - all data matches API
-[2026-09-15 09:03:12] Saved global standings.json
-[2026-09-15 09:03:13] Categorization complete - Live: 0, Fixtures: 15, Results: 15 (Distinct fixtures: 30)
+**A healthy run writes nothing.** The cron ticks 480 times a day, so anything logged on every
+tick is 480 identical lines a day — and a log you cannot scan is worse than no log at all.
+What is worth knowing after a normal run lives in `cron-state.json` (`last_run`,
+`last_run_ok`, `last_run_summary`), where a monitor can read it as data instead of parsing
+prose.
+
+An empty log is therefore the expected state, not a symptom:
+
+```powershell
+# Is the log growing while nothing is actually wrong?
+Get-Item c:\laragon\www\blwp\backend\logs\api.log | Select-Object Length, LastWriteTime
 ```
 
-**Lines worth alerting on:**
+The per-tick detail still exists, behind a switch:
+
+```php
+// backend/config/api-config.php
+'log_verbose' => true,   // per-tick counts, saved files, passing validations
+```
+
+That restores `Categorization complete`, `Saved global standings.json`,
+`✓ Standings validation passed` and `site-mapping.json not found`. Turn it on while
+diagnosing something, then turn it back off.
+
+`api.log` rotates to `api.log.1` at 1 MB, one generation only — a retry loop stuck on the
+same error would otherwise grow the file without any bound.
+
+### Lines that matter
 
 | Pattern                                                 | Meaning                                                                                          |
 | ------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
 | `✗ Standings validation failed`                         | The local calculation disagrees with the API. Followed by a field-by-field diff per team.        |
 | `API error in getFixtures/getResults/getFixturesByDate` | Upstream failure. The site's data file was **not** written, so the last good data is still live. |
 | `ERROR updating <domain>`                               | Per-site failure, see the message                                                                |
+| `ERROR - could not write`                               | The payload was not published — `file_put_contents()` failed or came up short                    |
+| `WARNING - getStandings() returned no rows`             | Metadata comes from the cache; the calculated table is unaffected                                 |
+| `ALERT NOT SENT`                                        | Telegram rejected the alert — the one failure that would otherwise stay invisible                 |
+| `WARNING - healthcheck ping failed`                     | The external monitor will now report the cron as down                                            |
+| `Live Bundesliga: N game(s)`                            | Only on transition (0→N, N→0, or a status change), never once per tick                            |
 | `UNAUTHORIZED - Secret key mismatch`                    | A plugin has the wrong `shared_secret`                                                           |
 | `Invalid token for domain`                              | Plugin and `site-mapping.json` disagree — re-save the plugin settings                            |
 | `RATE LIMIT`                                            | Manual refresh attempted too soon (expected, not an error)                                       |
 
 > Many log calls in `fetch-functions.php` are commented out. Uncomment them for a
 > debugging session, but be aware the file is rewritten on every deploy.
+
+---
+
+## Alerting
+
+Two independent channels. They exist as a pair because they fail in disjoint ways.
+
+|         | Telegram (inside-out)                                                      | healthchecks.io (outside-in)                       |
+| ------- | -------------------------------------------------------------------------- | -------------------------------------------------- |
+| Reports | `blwp_notify()` in `lib/notify.php`                                        | an external monitor                                |
+| Knows   | *what* broke, with detail                                                  | only *that* something stopped                      |
+| Catches | site update failed, payload not written, standings empty, validation drift | scheduler disabled, PHP fatal, dead host, disk full |
+| Blind to| its own death — it cannot report anything if it never runs                 | everything granular                                |
+
+A process cannot report that it stopped running. That is the entire reason for the second
+channel, and why neither one is redundant.
+
+### Telegram
+
+```php
+// backend/config/secrets.php
+'telegram_bot_token' => '123456789:AAE…',
+'telegram_chat_id'   => '123456789',
+```
+
+1. In Telegram, message **@BotFather** → `/newbot`, and copy the token.
+2. **Send your new bot `/start`.** A bot cannot open a conversation itself and
+   `sendMessage` answers `403: bot can't initiate conversation` until you have. This is the
+   step everyone misses.
+3. Read `message.chat.id` from `https://api.telegram.org/bot<token>/getUpdates`.
+
+Leave either value empty and every `blwp_notify()` call becomes a **silent no-op** — which
+is what development and a fresh clone want. Nothing else has to be configured.
+
+**Throttling is not optional.** An expired API key fails on all 480 ticks a day, and an
+unthrottled notifier turns one outage into 480 messages — a second outage. Each alert *key*
+(`site:example.test`, `standings`, `validation`) may therefore fire at most once per
+`intervals.alert_throttle` (default **240** minutes). Further occurrences inside that window
+are counted, and the count is attached to the next message that does go out:
+
+```
+Update failed for testwp.test
+…
+(+37 more since the last alert for this problem)
+```
+
+When a problem clears, `blwp_notify_recovered()` sends an all-clear — but only while an alert
+for that key is still outstanding. Without it, silence is ambiguous: throttled and fixed look
+identical. The bookkeeping lives in `backend/config/alerts.json` (gitignored), deliberately
+not in `cron-state.json` — the cron loads that file once and writes it back at the end, which
+would discard anything written to it mid-run.
+
+### healthchecks.io
+
+The free tier ("Hobbyist") is **20 jobs**, with unlimited pings: one job absorbs all 480
+daily pings. The billed limit is retained ping *history* (100 entries per job), not a cap on
+runs.
+
+1. Create a free account and a check with a period of **5 minutes** and a grace time of
+   **5 minutes**.
+2. Copy the ping URL (`https://hc-ping.com/<uuid>`) into `secrets.php` as
+   `healthcheck_ping_url`.
+3. In that check's **Integrations**, connect **Telegram**. This half needs no code at all for
+   its notifications.
+
+`cron/fetch_all.php` pings it once at the very end of a tick, and that is the only signal it
+sends. Deliberately a plain ping and never `/fail`: this channel means "the pipeline is
+alive", so reporting a site-level failure here too would duplicate the Telegram alert. The
+value is in what does **not** happen — a fatal, a disabled scheduler or an unreachable host
+produces no request at all, and the monitor alerts on that silence.
+
+`cron/check_health.php` is the manual companion: it exits non-zero when the run is stale or a
+data file is missing, which makes it usable from a deploy script. But something has to
+*invoke* it, so it cannot stand in for the external heartbeat.
 
 ---
 
@@ -271,12 +371,12 @@ reappear, something is still using `BLWP_PRIVATE_PATH . '/cache'`.
 
 api-sports.io plan: **75,000 requests/day**.
 
-| Consumer                                                             | Frequency                 | Approx. calls/day |
-| -------------------------------------------------------------------- | ------------------------- | ----------------- |
-| Cron — per site (`getFixtures` + `getResults` + `getFixturesByDate`) | every 3 min               | 3 × 480 × _sites_ |
-| Cron — standings (`getLeagueFixtures`)                               | every 3 min               | 480               |
-| Cron — `getStandings`                                                | every 3 min               | 480               |
-| Manual refresh                                                       | on demand, rate limited   | negligible        |
+| Consumer                                                             | Frequency               | Approx. calls/day |
+| -------------------------------------------------------------------- | ----------------------- | ----------------- |
+| Cron — per site (`getFixtures` + `getResults` + `getFixturesByDate`) | every 3 min             | 3 × 480 × _sites_ |
+| Cron — standings (`getLeagueFixtures`)                               | every 3 min             | 480               |
+| Cron — `getStandings`                                                | every 3 min             | 480               |
+| Manual refresh                                                       | on demand, rate limited | negligible        |
 
 With two sites that is roughly **3,860/day — about 5% of quota**. Adding sites scales
 linearly on the per-site term, so the headroom is large but not unlimited: ~20 sites would
