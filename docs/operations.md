@@ -292,16 +292,14 @@ At rollover:
 
 1. **Check `site-mapping.json`** — each entry's `season` field is stale. It only feeds
    `meta.season` today, but fix it before season scoping is added anywhere.
-2. **`blwp_season` needs a direct database edit.** The plugin reads this option with a
-   hardcoded default of `2025` and **never registers it in the settings page**, so there is
-   no admin field for it — the value in `site-mapping.json` is frozen at `2025` until
-   someone sets it explicitly:
+2. **Nothing to do for the season.** The plugin no longer sends one; the backend derives it
+   from the calendar on every run, so `meta.season` is always current. The `blwp_season`
+   option is only forwarded if you set it explicitly — which is now the only way to pin a
+   single site to a specific season:
 
    ```bash
    wp option update blwp_season 2026 --path=/path/to/wordpress
    ```
-
-   Then re-save the plugin settings so the new value is sent to `register.php`.
 
 3. **Let `default_season` recalculate** — it is derived, not stored. `update_global_standings()`
    picks up the new season automatically.

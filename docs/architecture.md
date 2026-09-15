@@ -216,20 +216,30 @@ server-side, for every consumer.
 
 ### Game classification (`categorizeGames`)
 
-Fixtures and results are merged into three buckets using a `$seen_ids` set for
-deduplication (fixtures win ties, since they are processed first):
+Fixtures and results are merged into three buckets. **Each bucket has its own dedupe guard**,
+because a game can legitimately belong to two buckets at once:
 
-| Condition                                                       | Bucket                            |
+| Condition                                                       | Bucket(s)                         |
 | --------------------------------------------------------------- | --------------------------------- |
 | Today **and** status ∈ `1H, HT, 2H, ET, P, BT, LIVE, INT, SUSP` | `live`                            |
-| Today **and** status ∈ `FT, AET, PEN, AWD, WO`                  | `live` ← _half-life_              |
-| Today **and** status ∈ `TBD, NS`                                | `fixtures` (with `isToday: true`) |
-| Anything else                                                   | `fixtures`                        |
+| Today **and** status ∈ `FT, AET, PEN, AWD, WO`                  | `live` **and** `results`          |
+| Anything else (future games, today's games not yet kicked off)   | `fixtures` (with `isToday: true`) |
 
-The "half-life" rule means a game that finishes tonight stays in the `live` array until
-midnight, so it doesn't vanish from the UI the moment the whistle blows. The frontend
-distinguishes the two cases (`isLive && !isFinished` vs `isLive && isFinished`) and renders
-finished ones with the results layout.
+The **half-life** rule is why a game finished today lands in two places. It stays in `live`
+until midnight so it does not vanish from the Spielplan tab the moment the final whistle
+blows — the frontend detects that case (`isLive && isFinished`) and renders it with the
+results layout. It is *also* published to `results` immediately, so the Ergebnisse tab and
+the form widget can show it without waiting for midnight.
+
+The second half is a fix rather than a flourish. The buckets used to share a single
+`$seen_ids` set, and because fixtures are processed first, every match finished today was
+marked seen and then **skipped** by the results loop. The most recent result was therefore
+missing from the Ergebnisse tab and, more visibly, from the form widget's "letzte N Spiele"
+— the very match a reader had just watched.
+
+`results` stays ordered newest-first: today's finished games are published by the fixtures
+loop, which runs before the loop that appends older results, and the frontend relies on that
+order when it slices.
 
 Every game also gets an `isToday` flag, used for styling.
 
@@ -433,13 +443,11 @@ Ordered by how likely they are to cause a real problem.
    no longer maintains per-site scheduling state. Dead keys
    (`league_live_games`, `has_live_league_game`, `has_live_game`, …) have been removed, but
    the section itself survives with a single real purpose.
-7. **A stale `season` is possible.** `api-config.php` derives `default_season` from
-   `getCurrentSeason()` (July–June), but `fetch_site_data()` prefers `$site['season']` from
-   `site-mapping.json`, which is whatever the plugin last sent — and the plugin's
-   `blwp_season` option defaults to a hardcoded `2025`. Today that only affects the
-   `meta.season` field, because the fixture queries pass no season at all, but it is a trap
-   if season scoping is ever added. See the rollover checklist in
-   [operations.md](docs/operations.md#season-rollover).
+7. ~~**A stale `season` is possible.**~~ **Fixed** — `fetch_site_data()` no longer reads
+   `$site['season']`; the season is always derived from the calendar, and the plugin no
+   longer sends its hardcoded default. `site-mapping.json`'s `season` field is now inert.
+   This also fixed the published API contradicting itself: `standings.json` said `2026`
+   while `{domain}.json` said `2025`.
 
 ### Housekeeping
 

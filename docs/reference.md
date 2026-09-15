@@ -166,9 +166,12 @@ The registry of servable sites. Written by `register.php`, read by `fetch_site_d
 
 - `enabled` — the cron skips anything falsy. `register.php` always sets it to `true`.
 - `api_token` — **a secret.** Required by `fetch.php`; returned to the plugin that owns it.
-- `season` — takes precedence over `default_season` in `fetch_site_data()` (metadata only today).
+- `season` — written at registration and kept for reference, but **no longer read**.
+  `fetch_site_data()` always derives the season from the calendar, so `{domain}.json` and
+  `standings.json` can never disagree.
 
-> ⚠ This file contains a credential per site and is currently tracked in git.
+> ⚠ Contains a credential per site. **Gitignored** — commit `site-mapping.example.json`
+> instead, never this file.
 
 ### `backend/config/cron-state.json`
 
@@ -208,10 +211,11 @@ pruned. They will not come back — nothing writes them any more.
 ```json
 {
   "meta": {
+    "schema": 1,
     "domain": "testwp.test",
     "team_id": 157,
     "generated_at": "2026-09-15T09:03:13+02:00",
-    "season": 2025
+    "season": 2026
   },
   "live": [
     /* fixtures, see below */
@@ -272,11 +276,15 @@ Produced by `filterFixtures()`; `isToday` is added later by `categorizeGames()`.
 
 Notes for consumers:
 
+- `meta.schema` is the contract version. The plugin warns on `meta.schema` values it does
+  not understand instead of rendering blanks, so bump it when a field name or shape changes.
 - `league.round` is **already translated** (`4. Spieltag`, `Achtelfinale`, …).
 - `teams.*.name` is **already corrected** (short German forms).
 - `goals.*` is `null` before kickoff.
 - `score.*.suffix` is **not** part of this payload — the plugin derives extra-time/penalty
   suffixes from `score.extratime` and `score.penalty`.
+- A game finished **today** appears in **both** `live` and `results` (see the note under
+  [Fixture status codes](#fixture-status-codes)).
 
 ### `api/data/standings.json`
 
@@ -285,6 +293,7 @@ The shared Bundesliga table. Not per-site — every widget reads the same file.
 ```json
 {
   "meta": {
+    "schema": 1,
     "generated_at": "2026-09-15T09:03:12+02:00",
     "season": 2026,
     "competition_id": 78,
@@ -397,8 +406,9 @@ api-sports.io short codes, and how each subsystem treats them.
 > codes mean the match is not in a countable state — but it means a visible live score can
 > briefly disagree with the table. Worth confirming against real behaviour before changing.
 >
-> A game that is `isToday` **and** finished lands in the `live` bucket (the "half-life"
-> rule) so it stays visible until midnight.
+> A game that is `isToday` **and** finished lands in **both** `live` (the "half-life" rule,
+> so it stays visible in the Spielplan tab until midnight) **and** `results` (so the
+> Ergebnisse tab and the form widget show it straight away).
 
 ---
 
