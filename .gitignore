@@ -62,6 +62,7 @@ backend/cache/
 # and must be deployed with the rest of the tree.
 api/data/*.json
 backend/config/cron-state.json
+backend/config/alerts.json
 
 # Credentials and the live site registry — never commit these.
 # Committed templates sit next to them as *.example.* — those ARE tracked.

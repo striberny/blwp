@@ -26,12 +26,7 @@ require_once BLWP_LIB_DIR . '/fetch-functions.php';
 
 $config = require BLWP_CONFIG_DIR . '/api-config.php';
 
-function blwp_log($message)
-{
-  $log_file = BLWP_PRIVATE_PATH . '/logs/api.log';
-  $timestamp = date('Y-m-d H:i:s');
-  file_put_contents($log_file, "[{$timestamp}] {$message}\n", FILE_APPEND);
-}
+// blwp_log() now comes from lib/logging.php, loaded by bootstrap.php.
 
 function load_cron_state($config_dir)
 {
@@ -54,7 +49,8 @@ $config_dir   = BLWP_PRIVATE_PATH . '/config';
 // The registry is gitignored runtime data, so it may be absent on a fresh clone.
 // register.php creates it when the first site registers itself.
 if (!file_exists($mapping_file)) {
-  blwp_log('site-mapping.json not found — no sites registered yet, updating standings only.');
+  // Verbose: with nothing registered yet this would otherwise repeat on all 480 ticks a day.
+  blwp_log_verbose('site-mapping.json not found — no sites registered yet, updating standings only.');
 }
 
 $mapping    = file_exists($mapping_file)
@@ -85,10 +81,20 @@ foreach ($mapping as $entry) {
       'fixtures' => $result['fixtures_count'],
       'results' => $result['results_count'],
     ];
+
+    // No-op unless this site had an alert outstanding. Without it you would never learn that
+    // an outage had ended.
+    blwp_notify_recovered("site:{$domain}", "Recovered: {$domain} is updating normally again.");
   } else {
     $run_ok = false;
     $run_summary[$domain] = ['ok' => false, 'error' => $result['error']];
     blwp_log("ERROR updating {$domain}: {$result['error']}");
+
+    blwp_notify(
+      "Update failed for {$domain}\n\n{$result['error']}\n\n"
+        . 'The previous payload is still being served, so the widget shows stale data.',
+      "site:{$domain}"
+    );
   }
 }
 
@@ -99,3 +105,14 @@ $cron_state['global']['last_run_ok'] = $run_ok;
 $cron_state['global']['last_run_summary'] = $run_summary;
 
 save_cron_state($config_dir, $cron_state);
+
+// Finally, tell the external monitor that this tick completed.
+//
+// Deliberately a plain ping and not the /fail variant: this signal means "the pipeline is
+// alive", while anything granular goes out over Telegram. Reporting a site failure here as
+// well would duplicate every alert.
+//
+// The value of this is what it does NOT do — a fatal, a disabled scheduler or an unreachable
+// host means no request is ever made, and the monitor alerts on that silence. Nothing inside
+// this process could have noticed that.
+blwp_ping_healthcheck((string) ($config['healthcheck_ping_url'] ?? ''));

@@ -6,6 +6,7 @@
 
 require_once __DIR__ . '/../inc/APIFootball.php';
 require_once __DIR__ . '/utils.php';
+require_once __DIR__ . '/notify.php';
 
 /**
  * Fetch and update data for a single site
@@ -102,9 +103,25 @@ function fetch_site_data($domain, $config)
       'results' => $categorized['results']
     ];
 
-    // Save site data
+    // Save site data.
+    //
+    // The return value used to be ignored, so a permissions or disk problem looked exactly
+    // like a success: a healthy run in the summary, while the widget quietly kept serving the
+    // previous payload. A short or failed write is a failed fetch.
     $data_file = $data_dir . '/' . $domain . '.json';
-    file_put_contents($data_file, json_encode($data, JSON_UNESCAPED_SLASHES));
+    $json = json_encode($data, JSON_UNESCAPED_SLASHES);
+    $written = @file_put_contents($data_file, $json);
+
+    if ($written !== strlen($json)) {
+      blwp_log("ERROR - could not write {$data_file}");
+
+      return [
+        'success' => false,
+        'error' => "could not write {$data_file} (" . var_export($written, true)
+          . ' of ' . strlen($json) . ' bytes)',
+        'domain' => $domain
+      ];
+    }
 
     // Derive has_game_today from all available data — do not rely solely on
     // $today_raw (getFixturesByDate) which can silently return empty responses.
@@ -200,11 +217,25 @@ function update_global_standings($config, &$cron_state, $force_update = false)
       }
     }
 
-    if (!empty($league_live_games)) {
-      blwp_log("Detected " . count($league_live_games) . " live Bundesliga game(s):");
+    // Report the live set only when it changes. A match in play is re-detected on every tick,
+    // so the unconditional version wrote ~80 identical lines per match — exactly the kind of
+    // noise that buries a real error.
+    usort($league_live_games, fn($a, $b) => $a['fixture_id'] <=> $b['fixture_id']);
+    $live_signature = implode(',', array_map(
+      fn($game) => $game['fixture_id'] . ':' . $game['status'],
+      $league_live_games
+    ));
+
+    if ($live_signature !== ($cron_state['global']['live_signature'] ?? '')) {
+      blwp_log($league_live_games
+        ? 'Live Bundesliga: ' . count($league_live_games) . ' game(s) in play'
+        : 'No live Bundesliga games');
+
       foreach ($league_live_games as $game) {
         blwp_log("  - {$game['home_name']} vs {$game['away_name']} ({$game['status']})");
       }
+
+      $cron_state['global']['live_signature'] = $live_signature;
     }
 
     $calculated_standings = calculateStandings($all_league_fixtures, $competition_id);
@@ -221,6 +252,12 @@ function update_global_standings($config, &$cron_state, $force_update = false)
       // form/status/description silently vanish from the table.
       $api_standings = $cron_state['global']['api_standings_cache'] ?? [];
       blwp_log('WARNING - getStandings() returned no rows; reusing the cached metadata');
+      blwp_notify(
+        "The standings endpoint returned no rows.\n\n"
+          . 'Form, status and zone labels are being taken from the cached copy, so they may be '
+          . 'slightly behind. The table itself is calculated locally and is unaffected.',
+        'standings'
+      );
     } else {
       $cron_state['global']['api_standings_cache'] = $api_standings;
     }
@@ -252,13 +289,29 @@ function update_global_standings($config, &$cron_state, $force_update = false)
       ],
       'standings' => $global_standings
     ];
-    file_put_contents($standings_file, json_encode($standings_data, JSON_UNESCAPED_SLASHES));
-    blwp_log("Saved global standings.json");
+    $standings_json = json_encode($standings_data, JSON_UNESCAPED_SLASHES);
+    $standings_written = @file_put_contents($standings_file, $standings_json);
+
+    if ($standings_written !== strlen($standings_json)) {
+      blwp_log("ERROR - could not write {$standings_file}");
+      blwp_notify(
+        "Could not publish standings.json.\n\n{$standings_file} was not written, so the "
+          . 'standings widget keeps serving the previous table.',
+        'standings'
+      );
+    }
+
+    blwp_log_verbose('Saved global standings.json');
 
     // Update cron state
     $cron_state['global']['last_standings_update'] = date('c');
   } catch (Exception $e) {
     blwp_log("ERROR updating standings: " . $e->getMessage());
+    blwp_notify(
+      "Updating the standings failed.\n\n" . $e->getMessage()
+        . '\n\nThe previous table is still being served.',
+      'standings'
+    );
   }
 
   return $cron_state;
@@ -369,7 +422,9 @@ function categorizeGames($fixtures_raw, $results_raw)
     array_keys($seen['results'])
   )));
 
-  blwp_log(
+  // Verbose. The same numbers are written to cron-state.json as last_run_summary, where a
+  // monitor can read them without having to parse a log line.
+  blwp_log_verbose(
     "Categorization complete - Live: " . count($live) .
     ", Fixtures: " . count($fixtures) .
     ", Results: " . count($results) .

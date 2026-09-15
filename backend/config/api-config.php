@@ -33,7 +33,7 @@ if (file_exists('/var/www/api.fcbinside.de/htdocs/data')) {
   $data_path = realpath(__DIR__ . '/../../api/data') . '/';
 }
 
-return [
+$config = [
   'api_key' => $secrets['api_key'],
   'league_ids' => [
     'bundesliga' => 78,
@@ -46,6 +46,16 @@ return [
   'shared_secret' => $secrets['shared_secret'],
   'data_path' => $data_path,
 
+  // Alerting — both Telegram values are needed for blwp_notify() to do anything. Empty means
+  // every call becomes a silent no-op, which is the normal state in development.
+  // See lib/notify.php and docs/operations.md.
+  'telegram_bot_token' => $secrets['telegram_bot_token'] ?? '',
+  'telegram_chat_id' => $secrets['telegram_chat_id'] ?? '',
+
+  // Dead-man's switch from healthchecks.io (https://hc-ping.com/<uuid>). Pinged once at the
+  // end of every tick; the monitor alerts when the ping stops arriving.
+  'healthcheck_ping_url' => $secrets['healthcheck_ping_url'] ?? '',
+
   // Update intervals (in minutes)
   //
   // NOTE: the cron was deliberately simplified to "update every enabled site on
@@ -55,5 +65,18 @@ return [
   'intervals' => [
     'standings_validation' => 60, // Minutes between cross-checks of the local table vs the API
     'http_rate_limit' => 5,       // Min. minutes between manual /v1/fetch.php calls per domain
+    'alert_throttle' => 240,      // Minutes before the same alert key may notify again
   ],
+
+  // Per-tick "everything is normal" logging. Off means a healthy run writes nothing at all
+  // to logs/api.log. Turn it on while diagnosing something. See lib/logging.php.
+  'log_verbose' => false,
 ];
+
+// Resolved once here so lib/logging.php can answer "is verbose on?" without re-reading the
+// config for every line it writes.
+if (!defined('BLWP_LOG_VERBOSE')) {
+  define('BLWP_LOG_VERBOSE', !empty($config['log_verbose']));
+}
+
+return $config;

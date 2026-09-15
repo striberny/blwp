@@ -37,12 +37,9 @@ require_once BLWP_LIB_DIR . '/fetch-functions.php';
 $config = require BLWP_CONFIG_DIR . '/api-config.php';
 $config_dir = BLWP_CONFIG_DIR;
 
-// Logging function
-function blwp_log($message) {
-    $log_file = BLWP_LOGS_DIR . '/api.log';
-    $timestamp = date('Y-m-d H:i:s');
-    file_put_contents($log_file, "[{$timestamp}] [FETCH] {$message}\n", FILE_APPEND);
-}
+// blwp_log() comes from lib/logging.php via bootstrap.php. The tag is what keeps the HTTP
+// entry points distinguishable now that they all write to one shared log.
+define('BLWP_LOG_PREFIX', 'FETCH');
 
 // blwp_log("Fetch API called - Method: {$_SERVER['REQUEST_METHOD']}");
 

@@ -19,12 +19,9 @@ $config = require BLWP_CONFIG_DIR . '/api-config.php';
 $mapping_file = BLWP_CONFIG_DIR . '/site-mapping.json';
 $config_dir = BLWP_CONFIG_DIR;
 
-// Custom logging function
-function blwp_log($message) {
-    $log_file = BLWP_LOGS_DIR . '/api.log';
-    $timestamp = date('Y-m-d H:i:s');
-    file_put_contents($log_file, "[{$timestamp}] [REGISTER] {$message}\n", FILE_APPEND);
-}
+// blwp_log() comes from lib/logging.php via bootstrap.php. The tag is what keeps the HTTP
+// entry points distinguishable now that they all write to one shared log.
+define('BLWP_LOG_PREFIX', 'REGISTER');
 
 // Debug logging
 // blwp_log('Register API called - Method: ' . $_SERVER['REQUEST_METHOD']);

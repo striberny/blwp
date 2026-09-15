@@ -1,5 +1,8 @@
 <?php
 
+require_once __DIR__ . '/logging.php';
+require_once __DIR__ . '/notify.php';
+
 /**
  * Returns the current season based on the current date.
  *
@@ -545,9 +548,12 @@ function validateStandings(array $calculated_standings, array $api_standings, st
 
   // Log results
   if (empty($discrepancies)) {
-    blwp_log("✓ Standings validation passed for {$domain} - all data matches API");
+    // Verbose: a passing validation is the expected outcome, and the old version wrote a line
+    // every time the interval elapsed even though nothing was wrong.
+    blwp_log_verbose("✓ Standings validation passed for {$domain} - all data matches API");
   } else {
     blwp_log("✗ Standings validation failed for {$domain} - found " . count($discrepancies) . " discrepancies:");
+
     foreach ($discrepancies as $disc) {
       if (isset($disc['field'])) {
         blwp_log("  {$disc['team']}: {$disc['field']} = {$disc['calculated']} (calc) vs {$disc['api']} (API)");
@@ -555,6 +561,25 @@ function validateStandings(array $calculated_standings, array $api_standings, st
         blwp_log("  {$disc['team']}: {$disc['issue']}");
       }
     }
+
+    // Worth an alert: the published table is always the locally calculated one, so this is
+    // not an outage — but a mismatch is usually the first sign that the API changed something
+    // underneath us, and nobody is watching this log.
+    $examples = array_slice($discrepancies, 0, 5);
+    $lines = array_map(
+      fn($disc) => isset($disc['field'])
+        ? "{$disc['team']}: {$disc['field']} — calculated {$disc['calculated']}, API {$disc['api']}"
+        : "{$disc['team']}: {$disc['issue']}",
+      $examples
+    );
+
+    blwp_notify(
+      "Standings cross-check found " . count($discrepancies) . " discrepancy(ies) between the\n"
+        . "locally calculated table and the API.\n\n" . implode("\n", $lines)
+        . (count($discrepancies) > count($examples) ? "\n…" : '')
+        . "\n\nThis is a warning, not an outage: the calculated table is still what gets published.",
+      'validation'
+    );
   }
 
   return [

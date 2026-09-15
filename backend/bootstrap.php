@@ -33,3 +33,8 @@ define('BLWP_CONFIG_PATH', BLWP_CONFIG_DIR);
 define('BLWP_LIB_PATH', BLWP_LIB_DIR);
 define('BLWP_INC_PATH', BLWP_INC_DIR);
 define('BLWP_LOG_PATH', BLWP_LOGS_DIR);
+
+// Logging is part of the bootstrap rather than something each entry point defines for itself.
+// It used to be redefined in every entry point — three copies to keep in sync, and a fatal
+// error further down whenever a new one forgot to define it.
+require_once BLWP_LIB_DIR . '/logging.php';
