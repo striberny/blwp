@@ -294,6 +294,9 @@ Reverting only affects tracked files — runtime state is never part of it.
 
 ## Security
 
+> New to Unix file modes? [permissions.md](permissions.md) is a one-page primer, using this
+> project's own paths as the examples.
+
 ### Threat model
 
 The only credential that grants write access to this service is
