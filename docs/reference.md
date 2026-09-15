@@ -183,8 +183,13 @@ Runtime state. Read and written by the cron, `register.php` and `fetch.php`.
     "api_standings_cache": [
       /* raw API standings rows, full fields */
     ],
-    "api_cache_timestamp": "2026-05-12T11:24:20+02:00",
-    "last_standings_update": "2026-05-12T11:24:20+02:00"
+    "last_standings_validation": "2026-05-12T11:24:20+02:00",
+    "last_standings_update": "2026-05-12T11:24:20+02:00",
+    "last_run": "2026-05-12T11:24:21+02:00",
+    "last_run_ok": true,
+    "last_run_summary": {
+      "testwp.test": { "ok": true, "live": 0, "fixtures": 15, "results": 15 }
+    }
   },
   "sites": {
     "testwp.test": { "last_update": "2026-03-18T22:02:27+01:00" }
@@ -192,13 +197,16 @@ Runtime state. Read and written by the cron, `register.php` and `fetch.php`.
 }
 ```
 
-| Key                                | Written by                  | Read by     | Purpose                                                                |
-| ---------------------------------- | --------------------------- | ----------- | ---------------------------------------------------------------------- |
-| `global.api_standings_cache`       | `update_global_standings()` | same        | Metadata (`form`, `status`, `update`) merged into the calculated table |
-| `global.api_cache_timestamp`       | same                        | same        | Gates the next `getStandings()` call                                   |
-| `global.last_standings_update`     | same                        | same        | Bookkeeping                                                            |
-| `sites.{domain}.last_manual_fetch` | `fetch.php`                 | `fetch.php` | Manual-refresh rate limiting                                           |
-| `sites.{domain}.last_update`       | `register.php`, `fetch.php` | —           | Bookkeeping only                                                       |
+| Key                                | Written by                  | Read by            | Purpose                                                                |
+| ---------------------------------- | --------------------------- | ------------------ | ---------------------------------------------------------------------- |
+| `global.api_standings_cache`       | `update_global_standings()` | same               | Metadata (`form`, `status`, `update`) merged into the calculated table |
+| `global.last_standings_validation` | same                        | same               | Gates the next local-vs-API cross-check                                |
+| `global.last_standings_update`     | same                        | same               | Bookkeeping                                                            |
+| `global.last_run`                  | `cron/fetch_all.php`        | `check_health.php` | When the last tick finished — the staleness signal                     |
+| `global.last_run_ok`               | same                        | `check_health.php` | Whether every site in that tick succeeded                              |
+| `global.last_run_summary`          | same                        | `check_health.php` | Per-site counts, so a healthy tick needs no log line                   |
+| `sites.{domain}.last_manual_fetch` | `fetch.php`                 | `fetch.php`        | Manual-refresh rate limiting                                           |
+| `sites.{domain}.last_update`       | `register.php`, `fetch.php` | —                  | Bookkeeping only                                                       |
 
 Dead keys from the removed per-site scheduler (`league_live_games`,
 `has_live_league_game`, `has_live_game`, `has_game_today`, `games_today_date`) have been
@@ -373,7 +381,7 @@ Sort order: points ↓, goal difference ↓, goals for ↓. `rank` is then assig
 | `default_widgets`             | `["matches","standings","results"]` | Written into new mapping entries                    |
 | `shared_secret`               | _secret_                            | `register.php` auth                                 |
 | `data_path`                   | env-dependent, trailing slash       | Where `*.json` is written                           |
-| `intervals.api_cache_refresh` | `60`                                | Minutes between `getStandings()` calls              |
+| `intervals.standings_validation` | `60` | Minutes between cross-checks of the local table vs the API |
 | `intervals.http_rate_limit`   | `5`                                 | Minutes between manual `fetch.php` calls per domain |
 
 Only those two `intervals` are live. The scheduling intervals

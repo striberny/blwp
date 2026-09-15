@@ -25,7 +25,8 @@ _is_ the schedule; see [D2](architecture.md#d2--the-cron-always-updates-everythi
 1. Load `config/site-mapping.json` and `config/cron-state.json`
 2. `update_global_standings(force = true)`
    - recompute the table from all league fixtures
-   - call `getStandings()` only if the cache is older than 60 min
+   - call `getStandings()` for the metadata merge (every run)
+   - cross-check the local table against it only every 60 min
 3. For each entry with `enabled: true` → `fetch_site_data(domain, force = true)`
 4. Write `cron-state.json`
 
@@ -146,6 +147,14 @@ misbehaves, verify that file first.
    curl -I "https://api.fcbinside.de/v1/img.php?url=https%3A%2F%2Fmedia.api-sports.io%2Ffootball%2Fteams%2F157.png&s=20"
    ```
 
+9. **Wait one tick, then run the health check.** It exits non-zero if the scheduler is not
+   running, if any site failed, or if a data file is missing or stale — so a deploy script
+   (or an external monitor) can use the exit code directly:
+
+   ```bash
+   php /home/deploy/blwp/cron/check_health.php
+   ```
+
 ---
 
 ## Security
@@ -212,8 +221,7 @@ see [Known issues](architecture.md#known-issues--debt).
 ```
 [2026-09-15 09:03:12] ✓ Standings validation passed for global - all data matches API
 [2026-09-15 09:03:12] Saved global standings.json
-[2026-09-15 09:03:13] Categorization complete - Live: 0, Fixtures: 15, Results: 15 (Seen IDs: 30)
-[2026-09-15 09:03:13] Updated testwp.test: live=0, fixtures=15, results=15
+[2026-09-15 09:03:13] Categorization complete - Live: 0, Fixtures: 15, Results: 15 (Distinct fixtures: 30)
 ```
 
 **Lines worth alerting on:**
@@ -267,10 +275,10 @@ api-sports.io plan: **75,000 requests/day**.
 | -------------------------------------------------------------------- | ------------------------- | ----------------- |
 | Cron — per site (`getFixtures` + `getResults` + `getFixturesByDate`) | every 3 min               | 3 × 480 × _sites_ |
 | Cron — standings (`getLeagueFixtures`)                               | every 3 min               | 480               |
-| Cron — `getStandings`                                                | capped at once per 60 min | 24                |
+| Cron — `getStandings`                                                | every 3 min               | 480               |
 | Manual refresh                                                       | on demand, rate limited   | negligible        |
 
-With two sites that is roughly **3,400/day — about 4.5% of quota**. Adding sites scales
+With two sites that is roughly **3,860/day — about 5% of quota**. Adding sites scales
 linearly on the per-site term, so the headroom is large but not unlimited: ~20 sites would
 reach ~50%.
 

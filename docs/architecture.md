@@ -146,8 +146,8 @@ sequenceDiagram
     CRON->>FF: update_global_standings(force=true)
     FF->>API: getLeagueFixtures(78, season)
     FF->>FF: calculateStandings()
-    FF->>API: getStandings(78, season)   %% only if cache older than 60 min
-    FF->>FF: validateStandings()         %% log-only comparison
+    FF->>API: getStandings(78, season)   %% every run, for metadata
+    FF->>FF: validateStandings()         %% cross-check only, hourly
     FF->>FF: mergeStandingsWithAPI()
     FF->>FS: write standings.json
     loop every enabled entry in site-mapping.json
@@ -218,11 +218,11 @@ server-side, for every consumer.
 
 There is exactly **one** definition of which status codes mean what, in `utils.php`:
 
-| Helper                   | Codes                                                  |
-| ------------------------ | ------------------------------------------------------ |
-| `getFinishedStatuses()`  | `FT, AET, PEN, AWD, WO`                                |
-| `getInPlayStatuses()`    | `1H, HT, 2H, ET, P, BT, LIVE, INT, SUSP`               |
-| `getCountableStatuses()` | the union of the two — anything that may affect the table |
+| Helper                   | Codes                                                        |
+| ------------------------ | ------------------------------------------------------------ |
+| `getFinishedStatuses()`  | `FT, AET, PEN, AWD, WO`                                      |
+| `getInPlayStatuses()`    | `1H, HT, 2H, ET, P, BT, LIVE, INT, SUSP`                     |
+| `getCountableStatuses()` | the union of the two — anything that may affect the table    |
 | `classifyPhase()`        | maps a code to `finished` \| `live` \| `upcoming` \| `other` |
 
 `filterFixtures()` stamps `status.phase` on every published game, and both
@@ -232,7 +232,7 @@ own copies.
 This replaced **five** independent copies of the same lists — three in the backend (two in
 `categorizeGames()`, one in `calculateStandings()`, plus a fourth used only to log live
 games), and one in the frontend. The frontend now knows **no status codes at all**: it
-branches on `status.phase` and keeps only the German *wording* in `matchStatusMap`.
+branches on `status.phase` and keeps only the German _wording_ in `matchStatusMap`.
 
 > An earlier revision of this document claimed `calculateStandings()` deliberately excluded
 > `LIVE`, `INT` and `SUSP`. That was wrong — it always included them. The full per-code
@@ -317,11 +317,14 @@ reintroduce them without revisiting this reasoning.
 ### D3 — The standings table is calculated locally
 
 **Decision:** `calculateStandings()` rebuilds the whole table from every league fixture
-each run, treating in-play games as countable. The API's own standings are fetched at most
-once per `intervals.api_cache_refresh` (60 min) and used **only** for metadata.
+each run, treating in-play games as countable. The API's own standings are used **only**
+for metadata (`form`, `status`, `description`), and are refreshed on every tick — the quota
+cost is negligible against the plan.
 **Why:** the API's table updates on its own schedule, so during a match it lags reality.
-Computing locally means a goal is reflected immediately. It also removes a per-tick API
-call from the hot path.
+Computing locally means a goal is reflected immediately.
+**Cadence:** fetching and *validating* are deliberately decoupled. `validateStandings()`
+still runs on a slower clock (`intervals.standings_validation`, 60 min) because it is a
+canary, not a dependency — that keeps a healthy system silent.
 **Guard rails:** `validateStandings()` compares the computed table against the API's field
 by field and logs any mismatch. It is a **canary, not a control** — it never corrects or
 blocks. When this calculation is wrong, the log is where you find out.
