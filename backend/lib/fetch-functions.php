@@ -43,7 +43,12 @@ function fetch_site_data($domain, $config, $force_update = false)
   }
 
   $team_id = $site['team_id'];
-  $season = $site['season'] ?? $config['default_season'];
+
+  // Always derive the season from the calendar (getCurrentSeason). site-mapping.json's
+  // `season` is only ever whatever the plugin last sent, the plugin has no UI for it, so
+  // trusting it pinned the value to one year — which made {domain}.json disagree with
+  // standings.json, since that one uses default_season.
+  $season = $config['default_season'];
   $limit_last = $config['limit_last'];
   $limit_next = $config['limit_next'];
 
@@ -84,6 +89,9 @@ function fetch_site_data($domain, $config, $force_update = false)
     // Build clean public API data
     $data = [
       'meta' => [
+        // Bumped when the published shape changes in a breaking way. The plugin checks
+        // this and warns, instead of silently rendering blanks after a field rename.
+        'schema' => 1,
         'domain' => $domain,
         'team_id' => $team_id,
         'generated_at' => date('c'),
@@ -237,6 +245,7 @@ function update_global_standings($config, &$cron_state, $force_update = false)
     $standings_file = $data_dir . '/standings.json';
     $standings_data = [
       'meta' => [
+        'schema' => 1,
         'generated_at' => date('c'),
         'season' => $season,
         'competition_id' => $competition_id,
@@ -270,8 +279,35 @@ function categorizeGames($fixtures_raw, $results_raw)
   $fixtures = [];
   $results = [];
 
-  // Track seen fixture IDs to prevent duplicates across all arrays
-  $seen_ids = [];
+  // Each bucket keeps its own dedupe guard. This used to be a single shared "seen" set,
+  // which forced every game into exactly one bucket — and that silently kept every match
+  // finished *today* out of `results` until midnight. The most recent result was therefore
+  // missing from the Ergebnisse tab and from the form widget, which is precisely the match
+  // a user had just watched.
+  $seen = ['live' => [], 'fixtures' => [], 'results' => []];
+
+  /**
+   * Place a game into one bucket, ignoring it if that bucket already holds this fixture.
+   * A fixture may legitimately belong to two buckets at once — see the half-life below.
+   */
+  $add = function (string $bucket, array $game) use (&$live, &$fixtures, &$results, &$seen) {
+    $id = $game['id'] ?? null;
+
+    if ($id !== null && isset($seen[$bucket][$id])) {
+      return;
+    }
+    if ($id !== null) {
+      $seen[$bucket][$id] = true;
+    }
+
+    if ($bucket === 'live') {
+      $live[] = $game;
+    } elseif ($bucket === 'fixtures') {
+      $fixtures[] = $game;
+    } else {
+      $results[] = $game;
+    }
+  };
 
   // Statuses considered "finished"
   $finished_statuses = ['FT', 'AET', 'PEN', 'AWD', 'WO'];
@@ -279,105 +315,69 @@ function categorizeGames($fixtures_raw, $results_raw)
   // Statuses considered "actually live" (game in progress)
   $in_play_statuses = ['1H', 'HT', '2H', 'ET', 'P', 'BT', 'LIVE', 'INT', 'SUSP'];
 
-  // Statuses for not yet started games
-  $not_started_statuses = ['TBD', 'NS'];
-
-  // blwp_log("categorizeGames - Today: {$today}");
-
-  // Process fixtures (upcoming games) first - they take priority
+  // Process fixtures first: upcoming games, plus everything happening today. Today's games
+  // arrive twice (once via getFixturesByDate, once via getFixtures) — the per-bucket guards
+  // now do the deduplication a global set used to handle.
   foreach ($fixtures_raw as $game) {
-    $fixture_id = $game['id'] ?? null;
-
-    // Skip if we've already seen this fixture
-    if ($fixture_id && isset($seen_ids[$fixture_id])) {
-      // blwp_log("Fixture {$fixture_id} - SKIPPED (duplicate)");
-      continue;
-    }
-
     $gameDateTime = new DateTime($game['date']);
     $gameDateTime->setTimezone(new DateTimeZone('Europe/Berlin'));
-    $gameDate = $gameDateTime->format('Y-m-d');
     $status = $game['status']['short'] ?? 'NS';
-    $isToday = ($gameDate === $today);
-
-    // blwp_log("Fixture {$fixture_id} - Date: {$game['date']}, Parsed: {$gameDate}, Status: {$status}");
-
-    // Mark as seen
-    if ($fixture_id) {
-      $seen_ids[$fixture_id] = true;
-    }
+    $isToday = ($gameDateTime->format('Y-m-d') === $today);
 
     // Add isToday flag for frontend styling
     $game['isToday'] = $isToday;
 
-    // Game is actually in play right now → live array
     if ($isToday && in_array($status, $in_play_statuses)) {
-      // blwp_log("  → Moving to LIVE (in-play status: {$status})");
-      $live[] = $game;
-    }
-    // Today's finished game → keep in live array ("half-life" until midnight)
-    elseif ($isToday && in_array($status, $finished_statuses)) {
-      // blwp_log("  → Moving to LIVE (today, finished - half-life until midnight)");
-      $live[] = $game;
-    }
-    // Today's game but not started yet → fixtures with isToday flag
-    elseif ($isToday && in_array($status, $not_started_statuses)) {
-      // blwp_log("  → Keeping in FIXTURES (today, not started)");
-      $fixtures[] = $game;
-    }
-    // Future games → fixtures
-    else {
-      $fixtures[] = $game;
+      // In play right now
+      $add('live', $game);
+    } elseif ($isToday && in_array($status, $finished_statuses)) {
+      // Finished today — two buckets on purpose:
+      //   `live`    → the "half-life" rule, so the game does not vanish from the
+      //               Spielplan tab the moment the final whistle blows
+      //   `results` → so the Ergebnisse tab and the form widget see it straight away
+      //               instead of having to wait until midnight
+      $add('live', $game);
+      $add('results', $game);
+    } else {
+      // Future games, and today's games that have not kicked off yet (isToday = true)
+      $add('fixtures', $game);
     }
   }
 
-  // Process results (recent games) - skip any already seen in fixtures
+  // Then recent results. The loop above already published today's finished matches, and
+  // because it ran first they sit ahead of these older ones — so `results` stays ordered
+  // newest-first, which is the order the frontend slices.
   foreach ($results_raw as $game) {
-    $fixture_id = $game['id'] ?? null;
-
-    // Skip if we've already seen this fixture
-    if ($fixture_id && isset($seen_ids[$fixture_id])) {
-      // blwp_log("Result {$fixture_id} - SKIPPED (duplicate from fixtures)");
-      continue;
-    }
-
     $gameDateTime = new DateTime($game['date']);
     $gameDateTime->setTimezone(new DateTimeZone('Europe/Berlin'));
-    $gameDate = $gameDateTime->format('Y-m-d');
     $status = $game['status']['short'] ?? 'FT';
-    $isToday = ($gameDate === $today);
-
-    // blwp_log("Result {$fixture_id} - Date: {$game['date']}, Parsed: {$gameDate}, Status: {$status}");
-
-    // Mark as seen
-    if ($fixture_id) {
-      $seen_ids[$fixture_id] = true;
-    }
+    $isToday = ($gameDateTime->format('Y-m-d') === $today);
 
     // Add isToday flag for frontend styling
     $game['isToday'] = $isToday;
 
-    // Game is actually in play right now → live array
     if ($isToday && in_array($status, $in_play_statuses)) {
-      // blwp_log("  → Moving to LIVE (in-play status: {$status})");
-      $live[] = $game;
-    }
-    // Today's finished game → keep in live array ("half-life" until midnight)
-    elseif ($isToday && in_array($status, $finished_statuses)) {
-      // blwp_log("  → Keeping in LIVE (today, finished - half-life until midnight)");
-      $live[] = $game;
-    }
-    // Past finished games → results
-    elseif (in_array($status, $finished_statuses)) {
-      $results[] = $game;
-    }
-    // Other statuses (postponed, cancelled) → still in results with status
-    else {
-      $results[] = $game;
+      // Rare, but the API can report an in-play match here. `live` is owned by the
+      // fixtures loop, so this only ever fills a gap.
+      $add('live', $game);
+    } else {
+      // Finished, postponed or cancelled — all belong in results.
+      $add('results', $game);
     }
   }
 
-  blwp_log("Categorization complete - Live: " . count($live) . ", Fixtures: " . count($fixtures) . ", Results: " . count($results) . " (Seen IDs: " . count($seen_ids) . ")");
+  $distinct = count(array_unique(array_merge(
+    array_keys($seen['live']),
+    array_keys($seen['fixtures']),
+    array_keys($seen['results'])
+  )));
+
+  blwp_log(
+    "Categorization complete - Live: " . count($live) .
+    ", Fixtures: " . count($fixtures) .
+    ", Results: " . count($results) .
+    " (Distinct fixtures: {$distinct})"
+  );
 
   return [
     'live' => $live,
