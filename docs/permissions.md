@@ -18,11 +18,11 @@ drwx---rwx 2 deploy deploy 4096 Jan 19 2026 config
 
 Three letters per class, and each letter is either granted or shown as `-`:
 
-| Letter | On a file                 | On a directory                                     |
-| ------ | ------------------------- | -------------------------------------------------- |
-| `r`    | read its contents         | list what is inside it                             |
-| `w`    | change its contents       | **create, delete or rename entries inside it**      |
-| `x`    | run it as a program       | enter it — needed for anything inside to be reached |
+| Letter | On a file           | On a directory                                      |
+| ------ | ------------------- | --------------------------------------------------- |
+| `r`    | read its contents   | list what is inside it                              |
+| `w`    | change its contents | **create, delete or rename entries inside it**      |
+| `x`    | run it as a program | enter it — needed for anything inside to be reached |
 
 Every process belongs to exactly one user and one group. If it is the owner, the first
 triplet applies. If it is only in the group, the middle one. Otherwise the last one. **There
@@ -32,14 +32,14 @@ is no "deny" list** — a permission is simply granted or not.
 
 `r` = 4, `w` = 2, `x` = 1, added up per class.
 
-| Octal | Symbolic    | Meaning                          |
-| ----- | ----------- | -------------------------------- |
-| `755` | `rwxr-xr-x` | owner full, everyone else read   |
-| `750` | `rwxr-x---` | owner full, group read, no others |
-| `700` | `rwx------` | owner only                       |
-| `644` | `rw-r--r--` | owner writes, everyone reads     |
-| `640` | `rw-r-----` | owner writes, group reads        |
-| `600` | `rw-------` | owner only                       |
+| Octal | Symbolic    | Meaning                                  |
+| ----- | ----------- | ---------------------------------------- |
+| `755` | `rwxr-xr-x` | owner full, everyone else read           |
+| `750` | `rwxr-x---` | owner full, group read, no others        |
+| `700` | `rwx------` | owner only                               |
+| `644` | `rw-r--r--` | owner writes, everyone reads             |
+| `640` | `rw-r-----` | owner writes, group reads                |
+| `600` | `rw-------` | owner only                               |
 | `707` | `rwx---rwx` | owner full, group nothing, everyone full |
 
 `chmod 750 somefile` sets mode `750`. `chmod -R` recurses.
@@ -48,11 +48,11 @@ owner untouched — a common way to lock a directory down to its owner.
 
 ## The one rule that matters most
 
-> **Write permission on a *directory* lets you delete or replace the files inside it — even
+> **Write permission on a _directory_ lets you delete or replace the files inside it — even
 > files you have no write permission on yourself.**
 
-Writing on a *file* changes its contents. Writing on the *directory* changes its *list of
-entries*: you can delete a file and create a new one with the same name. The file's own mode
+Writing on a _file_ changes its contents. Writing on the _directory_ changes its _list of
+entries_: you can delete a file and create a new one with the same name. The file's own mode
 never comes into it.
 
 This is why a world-writable directory is worse than a world-writable file, and why
@@ -73,7 +73,7 @@ cat > /home/deploy/blwp/lib/utils.php <<'EOF'
 EOF
 ```
 
-`utils.php` was `0664` — not writable by other users. It made no difference: the *directory*
+`utils.php` was `0664` — not writable by other users. It made no difference: the _directory_
 was writable, so the file could be deleted and replaced with one of the same name. Three
 minutes later the cron loaded it, and their code ran **as `deploy`** — with access to
 `~/.ssh` and `~/credentials.txt`.
@@ -88,12 +88,12 @@ chmod -R go-rwx /home/deploy/blwp
 
 ## What this project uses
 
-| Path                            | Mode | Why                                                              |
-| ------------------------------- | ---- | ---------------------------------------------------------------- |
-| `/home/deploy/blwp` and below   | 700  | only `deploy` touches it — the cron, the API and the owner are the same account |
-| `/var/www/.../htdocs`           | 755  | nginx must read the PHP files it serves                          |
-| `/var/www/.../htdocs/data`      | 755  | payloads are public by design; written by `deploy`, read by nginx |
-| `/home/deploy/blwp/config/secrets.php` | 600 | credentials — owner read/write only                       |
+| Path                                   | Mode | Why                                                                             |
+| -------------------------------------- | ---- | ------------------------------------------------------------------------------- |
+| `/home/deploy/blwp` and below          | 700  | only `deploy` touches it — the cron, the API and the owner are the same account |
+| `/var/www/.../htdocs`                  | 755  | nginx must read the PHP files it serves                                         |
+| `/var/www/.../htdocs/data`             | 755  | payloads are public by design; written by `deploy`, read by nginx               |
+| `/home/deploy/blwp/config/secrets.php` | 600  | credentials — owner read/write only                                             |
 
 ## Commands worth knowing
 
