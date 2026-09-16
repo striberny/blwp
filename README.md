@@ -75,7 +75,7 @@ blwp/
 > ⚠ **`.htaccess` files are Apache-only.** Production runs **nginx**, which ignores them
 > completely. There, `/home/deploy/blwp/` is protected by sitting outside the document root,
 > and the CORS/cache headers on `api/data/*.json` must come from the nginx vhost — see
-> [static JSON headers](docs/operations.md#static-json-headers).
+> [static JSON headers](docs/deployment.md#static-json-headers).
 
 ---
 
@@ -135,7 +135,7 @@ deployed to different places:
 | `blwp/api/` → `https://blwp.test/api/` | contents → `/var/www/api.fcbinside.de/htdocs/`                         |
 | `blwp/backend/`                        | contents → `/home/deploy/blwp/` (**flattened**, no `backend/` segment) |
 
-Full instructions in [docs/operations.md](docs/operations.md).
+Full instructions in [docs/deployment.md](docs/deployment.md).
 
 ---
 
@@ -145,7 +145,9 @@ Full instructions in [docs/operations.md](docs/operations.md).
 | -------------------------------------------- | --------------------------------------------------------------------------------- |
 | [docs/architecture.md](docs/architecture.md) | How the pieces fit together, request flows, design decisions and their rationale  |
 | [docs/reference.md](docs/reference.md)       | HTTP endpoint reference, JSON file schemas, config keys, status/round/name tables |
-| [docs/operations.md](docs/operations.md)     | Cron, deployment, logs, cache, quota, troubleshooting, housekeeping               |
+| [docs/operations.md](docs/operations.md)     | Cron, logs, cache, quota, troubleshooting, housekeeping                           |
+| [docs/deployment.md](docs/deployment.md)     | Deploying both trees, what survives a deploy, verification, rollback              |
+| [docs/permissions.md](docs/permissions.md)   | Unix file-mode primer, using this project's own paths as the examples             |
 
 ---
 

@@ -301,7 +301,7 @@ breaking customer sites, because a slightly stale file is still a valid file.
 must set `Cache-Control: max-age=60` and `Access-Control-Allow-Origin: *` on it — without the
 cache header browsers fall back to heuristic caching and can serve a stale payload for
 minutes during a match. See
-[operations.md](operations.md#static-json-headers).
+[deployment.md](deployment.md#static-json-headers).
 
 ### D2 — The cron always updates everything
 
