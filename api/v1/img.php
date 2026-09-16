@@ -3,7 +3,7 @@
  * Image Proxy with Resize + WebP Cache
  *
  * Fetches images from api-sports.io, resizes them to 2× the requested display
- * size using multi-step downscaling, converts to WebP (quality 100), caches
+ * size using multi-step downscaling, converts to WebP (quality 85), caches
  * to disk, and serves them. The browser then does a clean 2:1 final scale.
  *
  * Usage: GET /v1/img.php?url=https://media.api-sports.io/...&s=20
@@ -120,8 +120,10 @@ imagecopyresampled($canvas, $cur, 0, 0, 0, 0, $render_size, $render_size, $cur_w
 if ($cur !== $source) imagedestroy($cur);
 imagedestroy($source);
 
-// --- Save as WebP to cache (quality 100 — icons are tiny) ---
-imagewebp($canvas, $cache_file, 100);
+// --- Save as WebP to cache
+// Quality 85, not 100: these are 24-64px icons where the difference is not visible,
+// and it takes roughly a quarter off every logo the widget serves.
+imagewebp($canvas, $cache_file, 85);
 imagedestroy($canvas);
 
 // --- Serve ---
